@@ -1,0 +1,5 @@
+SOC 2 Type II 2026
+Access control requires multifactor authentication for privileged accounts.
+Encryption at rest uses AES-256 and keys are rotated annually.
+Access | Control | MFA required | Privileged accounts
+[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14

@@ -1,0 +1,1 @@
+{"rules": {"production-read": {"effect": "Allow", "action": "s3:GetObject", "resource": "arn:aws:s3:::prod/*"}, "wildcard-admin": {"effect": "Allow", "action": "s3:*", "resource": "*"}}, "owner": "Platform Security"}
