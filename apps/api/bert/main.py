@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import re
 import time
 from datetime import date
 from collections.abc import AsyncIterator
@@ -21,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bert.api.schemas import (
     ASTNodeResponse,
     AuditResponse,
+    CitationMatch,
+    CopilotChatRequest,
+    CopilotChatResponse,
     DocumentResponse,
     EscalationActionRequest,
     EscalationResponse,
@@ -109,6 +113,76 @@ async def document_nodes(document_id: UUID) -> list[ASTNode]:
     async with SessionFactory() as session:
         result = await session.execute(select(ASTNode).where(ASTNode.document_id == document_id).order_by(ASTNode.node_order))
         return list(result.scalars().all())
+
+
+@app.get("/api/v1/documents/{document_id}/file")
+async def document_file(document_id: UUID) -> FileResponse:
+    async with SessionFactory() as session:
+        document = await session.get(Document, document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        source_path = Path(document.storage_path) if document.storage_path else stored_source_path(str(document.id), document.filename)
+        filename = Path(document.filename).name or "source.bin"
+        extension = Path(filename).suffix.lower()
+
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found")
+
+    media_type = {
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".json": "application/json",
+        ".txt": "text/plain",
+        ".md": "text/plain",
+    }.get(extension, "application/octet-stream")
+    safe_header_filename = filename.replace("\\", "_").replace('"', "'").replace("\r", "").replace("\n", "")
+    return FileResponse(
+        source_path,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_header_filename}"'},
+    )
+
+
+@app.post("/api/v1/copilot/chat", response_model=CopilotChatResponse)
+async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
+    async with SessionFactory() as session:
+        query = (
+            select(ASTNode, Document)
+            .join(Document, ASTNode.document_id == Document.id)
+            .where(Document.source_format != SourceFormat.XLSX)
+            .order_by(ASTNode.node_order)
+        )
+        if request.document_id is not None:
+            query = query.where(ASTNode.document_id == request.document_id)
+        rows = list((await session.execute(query)).all())
+
+    ranked = _rank_copilot_nodes(request.prompt, rows)
+    if not ranked:
+        return _insufficient_copilot_response()
+
+    _, selected_node, selected_document = ranked[0]
+    source_texts = [node.verbatim_text for _, node, _ in ranked]
+    claimed_quote = selected_node.verbatim_text
+    gate = run_verification_gate([claimed_quote], source_texts)
+    if not gate.passed:
+        return _insufficient_copilot_response()
+
+    page = selected_node.page_number or 1
+    inline_citation = f"[{selected_document.filename}:{page}]"
+    citation = CitationMatch(
+        quote=claimed_quote,
+        ast_node_id=str(selected_node.id),
+        page_number=selected_node.page_number,
+        bounding_box=selected_node.bounding_box,
+        document_filename=selected_document.filename,
+        confidence_score=gate.best_citation_score,
+    )
+    return CopilotChatResponse(
+        answer=f"{claimed_quote} {inline_citation}",
+        verification_status=VerificationStatus.VERIFIED.value,
+        match_score=gate.best_citation_score,
+        citations=[citation],
+    )
 
 
 @app.get("/api/v1/work-items", response_model=list[WorkItemResponse])
@@ -504,16 +578,123 @@ def date_for_filename(filename: str) -> date:
     return date(2023 if "2023" in filename else 2026, 1, 1)
 
 
+_COPILOT_STOP_WORDS = frozenset(
+    {
+        "a", "an", "and", "are", "be", "by", "can", "contain", "does", "for", "from", "how",
+        "in", "is", "of", "on", "the", "to", "what", "which", "who", "with", "used", "all",
+        "company", "current", "provide", "please", "tell",
+    }
+)
+_COPILOT_GENERIC_TERMS = frozenset({"control", "data", "document", "information", "policy", "security", "system"})
+
+
+def _copilot_terms(value: str) -> set[str]:
+    terms = set(re.findall(r"[a-z0-9]+(?:[-:*][a-z0-9]+)*", value.lower()))
+    terms.difference_update(_COPILOT_STOP_WORDS)
+    if {"mfa", "2fa", "multifactor"} & terms or "multi-factor" in value.lower():
+        terms.difference_update({"mfa", "2fa", "multifactor"})
+        terms.add("mfa")
+    return terms
+
+
+def _rank_copilot_nodes(
+    prompt: str, rows: list[tuple[ASTNode, Document]]
+) -> list[tuple[float, ASTNode, Document]]:
+    query_terms = _copilot_terms(prompt)
+    if not query_terms:
+        return []
+    ranked: list[tuple[float, ASTNode, Document]] = []
+    for node, document in rows:
+        source_terms = _copilot_terms(node.verbatim_text)
+        overlap = query_terms & source_terms
+        if not overlap:
+            continue
+        if not overlap - _COPILOT_GENERIC_TERMS:
+            continue
+        score = len(overlap) / len(query_terms)
+        if score >= 0.20:
+            ranked.append((score, node, document))
+    # Prefer the fuller policy clause over a compact table row when both carry
+    # the same question terms.  The selected text remains verbatim evidence.
+    ranked.sort(key=lambda item: (item[0], len(item[1].verbatim_text), -item[1].node_order), reverse=True)
+    return ranked
+
+
+def _insufficient_copilot_response() -> CopilotChatResponse:
+    return CopilotChatResponse(
+        answer=INSUFFICIENT_EVIDENCE_OUTPUT,
+        verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+        match_score=0.0,
+        citations=[],
+    )
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _write_binary_pdf(path: Path, pages: list[list[str]]) -> None:
+    """Write a small standards-compliant PDF without external canvas state."""
+    page_ids = list(range(3, 3 + len(pages)))
+    font_id = 3 + len(pages)
+    content_ids = list(range(font_id + 1, font_id + 1 + len(pages)))
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{' '.join(f'{page_id} 0 R' for page_id in page_ids)}] /Count {len(pages)} >>".encode(),
+    ]
+    for page_id, content_id in zip(page_ids, content_ids):
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>".encode()
+        )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    for page in pages:
+        commands = ["BT", "/F1 16 Tf", "72 744 Td"]
+        for line_index, line in enumerate(page):
+            if line_index:
+                commands.append("0 -22 Td")
+            commands.append(f"({_pdf_escape(line)}) Tj")
+        commands.append("ET")
+        content = "\n".join(commands).encode("latin-1")
+        objects.append(f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream")
+
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for object_number, body in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{object_number} 0 obj\n".encode())
+        output.extend(body)
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    output.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode())
+    output.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    path.write_bytes(output)
+
+
 def _write_demo_fixtures() -> list[tuple[str, SourceFormat, Path]]:
     DATA_DIR.mkdir(exist_ok=True)
     files: list[tuple[str, SourceFormat, Path]] = []
     pdf_sources = {
-        "SOC2_Type_II_2026.pdf": """SOC 2 Type II 2026\nAccess control requires multifactor authentication for privileged accounts.\nEncryption at rest uses AES-256 and keys are rotated annually.\nAccess | Control | MFA required | Privileged accounts\n[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14\n""",
-        "Legacy_InfoSec_Policy_2023.pdf": """Legacy Information Security Policy 2023\nPassword rotation is required every 90 days for all workforce accounts.\nThe 2023 policy applies to all production systems.\n""",
+        "SOC2_Type_II_2026.pdf": [
+            "SOC 2 Type II 2026",
+            "Access control requires multifactor authentication for privileged accounts.",
+            "Encryption at rest uses AES-256 and keys are rotated annually.",
+            "Access | Control | MFA required | Privileged accounts",
+            "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14",
+        ],
+        "Legacy_InfoSec_Policy_2023.pdf": [
+            "Legacy Information Security Policy 2023",
+            "Password rotation is required every 90 days for all workforce accounts.",
+            "The 2023 policy applies to all production systems.",
+        ],
     }
-    for filename, text in pdf_sources.items():
+    for filename, lines in pdf_sources.items():
         path = DATA_DIR / filename
-        path.write_text(text, encoding="utf-8")
+        _write_binary_pdf(path, [lines])
         files.append((filename, SourceFormat.DIGITAL_PDF, path))
     json_path = DATA_DIR / "aws_iam_prod_config.json"
     json_path.write_text(json.dumps({

@@ -78,6 +78,27 @@ class ASTNodeResponse(BaseModel):
     node_order: int
 
 
+class CopilotChatRequest(BaseModel):
+    prompt: str
+    document_id: UUID | None = None
+
+
+class CitationMatch(BaseModel):
+    quote: str
+    ast_node_id: str
+    page_number: int | None = None
+    bounding_box: dict[str, float] | None = None
+    document_filename: str
+    confidence_score: float
+
+
+class CopilotChatResponse(BaseModel):
+    answer: str
+    verification_status: str
+    match_score: float
+    citations: list[CitationMatch]
+
+
 class AuditResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -135,8 +156,10 @@ class EscalationResponse(BaseModel):
 
 
 class EscalationActionRequest(BaseModel):
-    action: Literal["manual_correction", "retry", "skip"]
+    action: Literal["manual_correction", "retry", "skip", "approve", "counsel"]
+    note: str | None = None
     correction: str | None = None
+    manual_payload: dict[str, Any] | None = None
 
 
 class SandboxRequest(BaseModel):

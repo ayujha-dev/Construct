@@ -1,11 +1,31 @@
 import type { ReactNode } from "react";
-import { Particles } from "../ui/Particles";
-import { TopNavbar } from "./TopNavbar";
+import { useLocation } from "react-router-dom";
+import { WeTransferIconRail } from "../navigation/WeTransferIconRail";
+import { WeTransferTopPill } from "../navigation/WeTransferTopPill";
+import { AttioSidebar } from "../navigation/AttioSidebar";
 
 export function AppShell({ children }: { children: ReactNode }) {
-  return <div className="app-shell">
-    <Particles className="ambient-particles" opacity={0.65} connections moveParticlesOnHover hoverEffect="parallax" speed={0.08} particleCount={220} particleSpread={13} particleColors={["#8b5cf6", "#38bdf8", "#34d399"]} />
-    <TopNavbar />
-    <main className="app-main">{children}</main>
-  </div>;
+  const location = useLocation();
+  const isLanding = location.pathname === "/";
+
+  return (
+    <div className="min-h-screen bg-[#F8F9FA] text-zinc-900 flex overflow-hidden font-ui">
+      {isLanding ? (
+        <>
+          <WeTransferIconRail />
+          <WeTransferTopPill />
+          <div className="flex-1 ml-16 min-h-screen overflow-y-auto">
+            {children}
+          </div>
+        </>
+      ) : (
+        <div className="flex w-full h-screen overflow-hidden">
+          <AttioSidebar />
+          <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden bg-white">
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

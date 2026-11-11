@@ -1,4 +1,4 @@
-import type { ASTNode, Document, Escalation, JobExecution, WorkItem } from "../types/bert";
+import type { ASTNode, CopilotChatResponse, Document, Escalation, JobExecution, WorkItem } from "../types/bert";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -12,7 +12,17 @@ export const bertApi = {
   getDocuments: () => request<Document[]>("/api/v1/documents"),
   getWorkItems: () => request<WorkItem[]>("/api/v1/work-items"),
   getNodes: (documentId: string) => request<ASTNode[]>(`/api/v1/documents/${documentId}/nodes`),
+  getFile: async (documentId: string): Promise<ArrayBuffer> => {
+    const response = await fetch(`${API_URL}/api/v1/documents/${documentId}/file`);
+    if (!response.ok) throw new Error((await response.text()) || `File request failed with ${response.status}`);
+    return response.arrayBuffer();
+  },
   getEscalations: () => request<Escalation[]>("/api/v1/escalations"),
+  askCopilot: (prompt: string, documentId?: string) => request<CopilotChatResponse>("/api/v1/copilot/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, document_id: documentId ?? null }),
+  }),
   upload: (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -32,9 +42,9 @@ export const bertApi = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ instruction: instruction ?? null }),
   }),
-  resolve: (workItemId: string, correction: string) => request<WorkItem>(`/api/v1/escalations/${workItemId}/resolve`, {
+  resolve: (workItemId: string, action: string = "manual_correction", correction: string = "") => request<WorkItem>(`/api/v1/escalations/${workItemId}/resolve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "manual_correction", correction }),
+    body: JSON.stringify({ action, correction }),
   }),
 };

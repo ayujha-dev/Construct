@@ -82,7 +82,7 @@ class DoclingParser:
     ):
         order = 0
         for page_number, page_text in enumerate(pages, start=1):
-            for raw_line in page_text.splitlines():
+            for line_index, raw_line in enumerate(page_text.splitlines()):
                 text = raw_line.strip()
                 if not text:
                     continue
@@ -93,7 +93,12 @@ class DoclingParser:
                 text = text.replace("[LOW_CONFIDENCE]", "").strip()
                 if not text:
                     continue
-                bbox = {"x0": 48.0, "y0": 72.0 + order * 14.0, "x1": 548.0, "y1": 84.0 + order * 14.0}
+                # PDF coordinates are measured from the lower-left corner of a
+                # 612 x 792 point page.  Keep the fallback geometry page-local
+                # so later pages cannot produce coordinates outside the source
+                # page just because the AST order is global.
+                y1 = max(12.0, min(756.0, 756.0 - line_index * 14.0))
+                bbox = {"x0": 48.0, "y0": y1 - 12.0, "x1": 548.0, "y1": y1}
                 if confidence < self._confidence_threshold:
                     low_confidence.append(
                         {

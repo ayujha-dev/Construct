@@ -80,8 +80,38 @@ export interface JobExecution {
   error_message: string | null;
 }
 
+export interface CitationMatch {
+  quote: string;
+  ast_node_id: string;
+  page_number: number | null;
+  bounding_box: { x0: number; y0: number; x1: number; y1: number } | null;
+  document_filename: string;
+  confidence_score: number;
+}
+
+export interface CopilotChatResponse {
+  answer: string;
+  verification_status: string;
+  match_score: number;
+  citations: CitationMatch[];
+}
+
+export type CopilotChatStatus = "PENDING" | "VERIFIED" | "INSUFFICIENT_EVIDENCE";
+
+export interface CopilotChatMessage {
+  id: string;
+  prompt: string;
+  answer: string | null;
+  status: CopilotChatStatus;
+  match_score: number;
+  citations: CitationMatch[];
+  document_id: string | null;
+  created_at: number;
+}
+
 export interface PipelineEvent {
   type: string;
+  created_at?: number;
   agent_name?: string;
   status?: string;
   latency_ms?: number;
@@ -108,4 +138,26 @@ export interface Escalation {
   priority_tier: PriorityTier;
   verification_status: VerificationStatus;
   fluent_output: string;
+}
+
+export interface ContradictionRecord {
+  id: string;
+  title: string;
+  category: string;
+  status: "SUPERSEDED" | "VIOLATION" | "RESOLVED";
+  arbiter_resolution: string;
+  legacy: {
+    document_id?: string | null;
+    filename: string;
+    effective_date?: string | null;
+    quote: string;
+    tag: string;
+  };
+  authoritative: {
+    document_id?: string | null;
+    filename: string;
+    effective_date?: string | null;
+    quote: string;
+    tag: string;
+  };
 }
