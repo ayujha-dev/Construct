@@ -6,14 +6,25 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import ijson
 
 from bert.ingestion.docling_parser import IngestionResult, ParsedNode, checksum_for_nodes
-from bert.models.documents import NodeType
+from bert.models.documents import NodeType, SourceFormat
 
 DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1024
+
+
+def canonical_json_path(prefix: str) -> str:
+    """Format a relative path into canonical `$.path` JSONPath syntax."""
+    if not prefix or prefix == "root":
+        return "$"
+    if prefix.startswith("$.") or prefix.startswith("$[") or prefix == "$":
+        return prefix
+    if prefix.startswith("["):
+        return f"${prefix}"
+    return f"$.{prefix}"
 
 
 class JSONStreamer:
@@ -22,8 +33,9 @@ class JSONStreamer:
     def __init__(self, *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
         self.max_payload_bytes = max_payload_bytes
 
-    def stream_nodes(self, file_path: Path) -> Iterator[ParsedNode]:
+    def stream_nodes(self, file_path: Path, document_id: UUID | None = None) -> Iterator[ParsedNode]:
         order = 0
+        doc_id_str = str(document_id) if document_id else ""
         array_indexes: dict[str, int] = {}
         # ijson.parse yields one event at a time. No complete root object or source
         # document is materialized, so memory is bounded by the current scalar.
@@ -39,6 +51,7 @@ class JSONStreamer:
                     continue
                 serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                 prefix = _json_path(path, array_indexes) or "root"
+                json_path = canonical_json_path(prefix)
                 serialized_bytes = serialized.encode("utf-8")
                 chunks: list[str] = []
                 start = 0
@@ -59,23 +72,36 @@ class JSONStreamer:
                         "chunk_count": chunk_count,
                         "value": chunk,
                     }
+                    locator = {
+                        "source_type": "json",
+                        "doc_id": doc_id_str,
+                        "json_path": json_path,
+                        "node_id": str(uuid4()),
+                        "checksum": "",
+                    }
                     yield ParsedNode(
                         node_type=NodeType.JSON_RULE,
                         verbatim_text=f"{chunk_path}: {chunk}",
                         section_path=chunk_path,
                         structured_payload=payload,
+                        locator=locator,
                         node_order=order,
                     )
                     order += 1
 
     def parse(self, file_path: Path, document_id: UUID) -> IngestionResult:
-        nodes = list(self.stream_nodes(file_path))
+        nodes = list(self.stream_nodes(file_path, document_id))
+        checksum = checksum_for_nodes(nodes)
+        for node in nodes:
+            if node.locator is not None:
+                node.locator["checksum"] = checksum
         return IngestionResult(
             document_id=document_id,
             nodes=nodes,
-            checksum=checksum_for_nodes(nodes),
+            checksum=checksum,
             total_pages=0,
             low_confidence_crops=[],
+            source_format=SourceFormat.JSON_CONFIG,
         )
 
 

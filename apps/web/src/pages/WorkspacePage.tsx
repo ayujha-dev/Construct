@@ -3,18 +3,25 @@ import {
   Bot,
   ChevronRight,
   Layers,
-  Pause,
-  Play,
-  ShieldAlert,
-  ShieldCheck,
-  Sparkles,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { BentoCanvas } from "../components/copilot/BentoCanvas";
 import { CopilotStream } from "../components/copilot/CopilotStream";
 import { RightInspectorDrawer } from "../components/copilot/RightInspectorDrawer";
-import { AGENTS, AGENT_ROLES, useBertStore } from "../store/useBertStore";
+import { AGENTS, useBertStore } from "../store/useBertStore";
+
+const MIN_INSPECTOR_WIDTH = 240;
+const MAX_INSPECTOR_WIDTH = 600;
+
+function getDefaultInspectorWidth(): number {
+  if (typeof window !== "undefined" && window.innerWidth <= 1120) {
+    return 340;
+  }
+  return 384;
+}
 
 export function WorkspacePage() {
   const navigate = useNavigate();
@@ -26,69 +33,127 @@ export function WorkspacePage() {
     documents,
     workItems,
     activeJob,
+    corpusStatus,
+    selectedFileFilterId,
+    selectedDocumentId,
     pauseJob,
     resumeJob,
     refresh,
   } = useBertStore();
 
+  const [inspectorWidth, setInspectorWidth] = useState<number>(getDefaultInspectorWidth);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+
+  // Only refresh on WorkspacePage mount if App hasn't already initiated corpus load
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (corpusStatus === "idle") {
+      void refresh();
+    }
+  }, [corpusStatus, refresh]);
+
+  // Keep inspector bounded on narrow desktop viewports so center workspace retains >= 400px
+  useEffect(() => {
+    const onResize = () => {
+      const maxAllowed = Math.max(MIN_INSPECTOR_WIDTH, window.innerWidth - 240 - 420);
+      setInspectorWidth((prev) => (prev > maxAllowed ? maxAllowed : prev));
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const clampWidth = useCallback(
+    (w: number) => Math.max(MIN_INSPECTOR_WIDTH, Math.min(MAX_INSPECTOR_WIDTH, w)),
+    []
+  );
+
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = inspectorWidth;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = startX - moveEvent.clientX;
+      setInspectorWidth(clampWidth(startWidth + delta));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const handleSplitterKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setInspectorWidth((w) => clampWidth(w + 10));
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setInspectorWidth((w) => clampWidth(w - 10));
+    }
+  };
 
   const isRunning = activeJob?.status === "RUNNING";
   const isPaused = activeJob?.status === "PAUSED";
   const agentIndex = activeJob?.current_agent_index ?? 0;
   const currentAgent = AGENTS[Math.min(agentIndex, AGENTS.length - 1)];
-  const currentRole = AGENT_ROLES[Math.min(agentIndex, AGENT_ROLES.length - 1)];
-  const activeDoc = activeJob?.current_document_id
-    ? documents.find((d) => d.id === activeJob.current_document_id)
-    : documents[0];
+
+  const activeDocId = selectedFileFilterId || activeJob?.current_document_id || selectedDocumentId;
+  const activeDoc = activeDocId ? documents.find((d) => d.id === activeDocId) : documents[0];
   const currentNode = (activeJob?.current_node_index ?? 0) + 1;
 
-  // Caution summary counters
+  // Exclude ESCALATED_LEGAL from verified numerator while tracking unresolved/critical cleanly
   const criticalCount = workItems.filter((i) => i.priority_tier === "P0_CRITICAL").length;
-  const needsHumanCount = workItems.filter((i) => i.verification_status !== "VERIFIED").length;
-  const verifiedCount = workItems.filter(
-    (i) => i.verification_status === "VERIFIED" && i.priority_tier !== "P0_CRITICAL"
+  const legalCount = workItems.filter((i) => i.verification_status === "ESCALATED_LEGAL").length;
+  const needsHumanCount = workItems.filter(
+    (i) =>
+      i.verification_status === "NEEDS_HUMAN_VERIFICATION" ||
+      i.verification_status === "INSUFFICIENT_EVIDENCE"
   ).length;
+  const verifiedCount = workItems.filter((i) => i.verification_status === "VERIFIED").length;
 
-  // Plain-English live agent telemetry
   const telemetryText = isRunning
     ? `Agent ${agentIndex + 1} (${currentAgent}) is inspecting ${activeDoc?.filename || "source"} (Node ${currentNode})`
     : isPaused
-    ? `Paused at Agent ${agentIndex + 1} (${currentAgent}) · Reviewer direction active`
-    : "7-Agent Regiment Standby · Evidence Gate Online";
+      ? `Paused at Agent ${agentIndex + 1} (${currentAgent}) · Reviewer direction active`
+      : "7-Agent Regiment Standby · Evidence Gate Online";
 
   const setMode = (mode: "stream" | "canvas") => {
+    const next = new URLSearchParams(searchParams);
     if (mode === "canvas") {
-      setSearchParams({ mode: "canvas" });
+      next.set("mode", "canvas");
     } else {
-      setSearchParams({});
+      next.delete("mode");
     }
+    setSearchParams(next);
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-white select-none">
-      {/* 1. Top Context Bar (Attio / Replit Hybrid) */}
-      <header className="h-13 border-b border-zinc-200/90 bg-white px-4 flex items-center justify-between shrink-0 z-20">
-        {/* Left: Active project breadcrumb + Segmented Mode Switcher Pill */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
-            <span className="text-zinc-900 font-semibold">Enterprise Review</span>
-            <ChevronRight size={13} className="text-zinc-400" />
-            <span className="truncate max-w-36 text-zinc-600">
+    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white">
+      {/* 1. Top Context Bar */}
+      <header className="h-13 border-b border-zinc-200/90 bg-white px-3 lg:px-4 flex items-center justify-between gap-2 shrink-0 z-20">
+        {/* Left: Breadcrumb + Mode Switcher */}
+        <div className="flex items-center gap-2 lg:gap-3 min-w-0">
+          <div className="hidden lg:flex items-center gap-1.5 text-xs text-zinc-600 font-medium min-w-0">
+            <span className="text-zinc-900 font-semibold shrink-0">Enterprise Review</span>
+            <ChevronRight size={13} className="text-zinc-500 shrink-0" />
+            <span className="truncate max-w-32 text-zinc-700" title={activeDoc?.filename || "Corpus"}>
               {activeDoc?.filename || "Corpus"}
             </span>
           </div>
 
-          {/* Replit-style Segmented Switcher Pill (Design | Build) */}
-          <div className="flex p-0.5 rounded-lg bg-zinc-100 border border-zinc-200/80 text-xs font-medium">
+          <div className="flex p-0.5 rounded-lg bg-zinc-100 border border-zinc-200/80 text-xs font-medium shrink-0">
             <button
+              type="button"
               onClick={() => setMode("stream")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-1 rounded-md transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 !isCanvas
                   ? "bg-white text-zinc-950 font-semibold shadow-2xs"
-                  : "text-zinc-600 hover:text-zinc-950"
+                  : "text-zinc-700 hover:text-zinc-950"
               }`}
             >
               <Bot size={13} />
@@ -96,11 +161,12 @@ export function WorkspacePage() {
             </button>
 
             <button
+              type="button"
               onClick={() => setMode("canvas")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-1 rounded-md transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 isCanvas
                   ? "bg-white text-zinc-950 font-semibold shadow-2xs"
-                  : "text-zinc-600 hover:text-zinc-950"
+                  : "text-zinc-700 hover:text-zinc-950"
               }`}
             >
               <Layers size={13} />
@@ -110,54 +176,83 @@ export function WorkspacePage() {
         </div>
 
         {/* Center: Live Agent Telemetry Pill */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 border border-zinc-200/90 text-xs">
+        <div
+          role="status"
+          aria-live="polite"
+          className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 border border-zinc-200/90 text-xs"
+        >
           <span
             className={`w-2 h-2 rounded-full ${
-              isRunning ? "bg-blue-600 animate-ping" : isPaused ? "bg-amber-500" : "bg-emerald-500"
+              isRunning ? "bg-blue-600 animate-ping" : isPaused ? "bg-amber-600" : "bg-emerald-600"
             }`}
           />
-          <span className="text-zinc-700 font-medium font-ui truncate max-w-sm">
-            {telemetryText}
-          </span>
+          <span className="text-zinc-800 font-medium font-ui truncate max-w-xs">{telemetryText}</span>
           {isRunning && (
             <button
+              type="button"
               onClick={() => void pauseJob()}
-              className="ml-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-100/70 hover:bg-amber-100 px-2 py-0.5 rounded cursor-pointer transition-colors"
+              className="ml-1 text-[11px] font-semibold text-amber-900 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             >
-              ⏸ Pause Agent
+              Pause Agent
             </button>
           )}
           {isPaused && (
             <button
+              type="button"
               onClick={() => void resumeJob()}
-              className="ml-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-100/70 hover:bg-emerald-100 px-2 py-0.5 rounded cursor-pointer transition-colors"
+              className="ml-1 text-[11px] font-semibold text-emerald-900 hover:text-emerald-950 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             >
-              ▶ Resume
+              Resume
             </button>
           )}
         </div>
 
-        {/* Right: Caution Summary Pills + Results Button */}
-        <div className="flex items-center gap-2">
-          <div className="hidden xl:flex items-center gap-1.5 text-xs font-mono">
+        {/* Right: Counters + Inspector Controls + Results Button */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="hidden 2xl:flex items-center gap-1.5 text-xs font-mono">
             {criticalCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
+              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 font-semibold">
                 {criticalCount} Critical
               </span>
             )}
+            {legalCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 font-semibold">
+                {legalCount} Legal
+              </span>
+            )}
             {needsHumanCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold">
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">
                 {needsHumanCount} Human Input
               </span>
             )}
-            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-              {verifiedCount} Verified
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
+              {verifiedCount}/{workItems.length} Verified
             </span>
           </div>
 
           <button
+            type="button"
+            onClick={() => setMobileInspectorOpen(true)}
+            className="md:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-800 text-xs font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          >
+            <PanelRightOpen size={14} />
+            <span>Inspector</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInspectorCollapsed((prev) => !prev)}
+            aria-label={inspectorCollapsed ? "Expand inspector drawer" : "Collapse inspector drawer"}
+            title={inspectorCollapsed ? "Expand inspector drawer" : "Collapse inspector drawer"}
+            className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          >
+            {inspectorCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+          </button>
+
+          <button
+            type="button"
             onClick={() => navigate("/results")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#18181B] hover:bg-[#27272A] text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
           >
             <span>View Results Report</span>
             <ArrowRight size={13} />
@@ -166,12 +261,39 @@ export function WorkspacePage() {
       </header>
 
       {/* 2. Main Content Split Stage */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Center Stage: Mode A or Mode B */}
-        {isCanvas ? <BentoCanvas /> : <CopilotStream />}
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        {/* Center Stage */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          {isCanvas ? <BentoCanvas /> : <CopilotStream />}
+        </div>
 
-        {/* Right Inspector Drawer (Replit Image 4 + Attio Image 5) */}
-        <RightInspectorDrawer />
+        {/* Resizable Panel Splitter Handle (Desktop) */}
+        {!inspectorCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize inspector panel"
+            aria-valuemin={MIN_INSPECTOR_WIDTH}
+            aria-valuemax={MAX_INSPECTOR_WIDTH}
+            aria-valuenow={inspectorWidth}
+            tabIndex={0}
+            data-panel-resize-handle-id="inspector-splitter"
+            onMouseDown={handleSplitterMouseDown}
+            onKeyDown={handleSplitterKeyDown}
+            className="hidden md:flex w-1.5 bg-zinc-100 hover:bg-blue-400 cursor-col-resize items-center justify-center shrink-0 select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          >
+            <span className="w-0.5 h-8 rounded-full bg-zinc-400" aria-hidden="true" />
+          </div>
+        )}
+
+        {/* Right Inspector Drawer */}
+        {!inspectorCollapsed && (
+          <RightInspectorDrawer
+            width={inspectorWidth}
+            mobileOpen={mobileInspectorOpen}
+            onCloseMobile={() => setMobileInspectorOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

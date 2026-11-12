@@ -237,14 +237,15 @@ async function testLiveBrowserUrlSyncAndPolling() {
     assert(search.includes("mode=canvas"), `External param 'mode=canvas' must be preserved on mount, got: ${search}`);
     console.log(`  ✓ 'mode=canvas' preserved on initial workspace mount: ${search}`);
 
-    // 3. Inbound Document Selection Synchronization
-    console.log("  [3.3] Verifying Inbound Document Deep Linking (?doc=...)...");
+    // 3. Inbound Document Selection Synchronization (?doc= alias + ?file= + ?workspace=)
+    console.log("  [3.3] Verifying Inbound Document Deep Linking (?doc=... & ?workspace=)...");
     await page.goto(`${WEB_URL}/workspace?doc=fac5bc41-28f4-4364-8dc9-b153be7665dd&mode=canvas`);
     await sleep(800);
 
     search = await page.evaluate(() => window.location.search);
     assert(search.includes("mode=canvas"), `'mode=canvas' preserved alongside doc param: ${search}`);
-    console.log(`  ✓ Search params contain both doc and mode: ${search}`);
+    assert(search.includes("workspace="), `'workspace=' stabilized in URL: ${search}`);
+    console.log(`  ✓ Search params retain mode=canvas and workspace=: ${search}`);
 
     // 4. Outbound URL Synchronization & Infinite Loop Prevention
     console.log("  [3.4] Stress-testing Outbound URL sync & Infinite Loop Prevention...");
@@ -262,11 +263,11 @@ async function testLiveBrowserUrlSyncAndPolling() {
     assert(replaceStateCalls <= 3, `replaceState calls must be bounded (<=3), observed ${replaceStateCalls} calls indicating potential loop!`);
     console.log(`  ✓ replaceState called ${replaceStateCalls} times over 2.5s (cleanly bounded, no infinite loop)`);
 
-    // 5. Document selection in UI updates URL without dropping mode=canvas
-    console.log("  [3.5] Verifying Document Selection updates URL and preserves other query params...");
+    // 5. Document selection in sidebar updates URL to ?file= without dropping mode=canvas or workspace=
+    console.log("  [3.5] Verifying Sidebar File Selection updates URL (?file= & ?workspace=) and preserves ?mode=canvas...");
     const clicked = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll("button"));
-      const docBtn = buttons.find(b => b.textContent && b.textContent.includes(".pdf"));
+      const docBtn = document.querySelector("[data-testid='corpus-file-item']") ||
+        Array.from(document.querySelectorAll("button")).find((b) => b.textContent && b.textContent.includes(".pdf"));
       if (docBtn) {
         docBtn.click();
         return true;
@@ -277,26 +278,21 @@ async function testLiveBrowserUrlSyncAndPolling() {
     await sleep(800);
     search = await page.evaluate(() => window.location.search);
     assert(search.includes("mode=canvas"), `External param 'mode=canvas' preserved after user clicked document: ${search}`);
-    assert(search.includes("doc="), `URL updated to include 'doc=' parameter after selection: ${search}`);
-    console.log(`  ✓ After document click, URL updated with doc and retained mode=canvas: ${search}`);
+    if (clicked) {
+      assert(search.includes("file=") || search.includes("doc="), `URL updated to include 'file=' parameter after sidebar selection: ${search}`);
+    }
+    assert(search.includes("workspace="), `URL includes stable 'workspace=' parameter: ${search}`);
+    console.log(`  ✓ After sidebar selection, URL updated with file/workspace and retained mode=canvas: ${search}`);
 
-    // 6. Adversarial Check: Inbound 'page' parameter handling
-    console.log("  [3.6] Adversarial Edge Case: Inbound ?page=3 parameter behavior...");
+    // 6. Verify cold-load ?page=3 parameter preservation (Phase 2 fix)
+    console.log("  [3.6] Verifying Inbound ?page=3 deep-link preservation...");
     await page.goto(`${WEB_URL}/workspace?doc=fac5bc41-28f4-4364-8dc9-b153be7665dd&page=3&mode=canvas`);
     await sleep(1000);
 
     const searchAfterPageParam = await page.evaluate(() => window.location.search);
-    console.log(`  [Observed] URL search params after navigating with ?page=3: "${searchAfterPageParam}"`);
-    const pagePreserved = searchAfterPageParam.includes("page=3");
-    if (!pagePreserved) {
-      console.log("  ⚠️ [CONFIRMED VULNERABILITY / BEHAVIORAL GAP]");
-      console.log("     Inbound 'page' parameter (?page=3) was DELETED by UrlStateSync!");
-      console.log("     Root Cause: UrlStateSync reads ?doc and ?node inbound, but DOES NOT read ?page inbound.");
-      console.log("     In outbound sync effect, targetPage is activeHighlightBox?.pageNumber (null on load).");
-      console.log("     Because currentPage ('3') !== targetPage (null), UrlStateSync calls next.delete('page').");
-    } else {
-      console.log("  ✓ Inbound page=3 was preserved.");
-    }
+    assert(searchAfterPageParam.includes("page=3"), `Inbound ?page=3 must be preserved on cold load, got: "${searchAfterPageParam}"`);
+    assert(searchAfterPageParam.includes("mode=canvas"), `Inbound ?mode=canvas must be preserved alongside ?page=3, got: "${searchAfterPageParam}"`);
+    console.log(`  ✓ Inbound ?page=3 and ?mode=canvas preserved cleanly: ${searchAfterPageParam}`);
 
     // 7. Unknown Document ID in URL (Robustness / Error Handling)
     console.log("  [3.7] Adversarial Edge Case: Unknown document ID (?doc=unknown-uuid-999)...");

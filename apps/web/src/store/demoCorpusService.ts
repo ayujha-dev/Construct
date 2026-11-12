@@ -1,8 +1,11 @@
 import type { ASTNode, Document, WorkItem } from "../types/bert";
 
-const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const uid = () =>
+  globalThis.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 export function buildDemoCorpus(): {
+  workspaceId: string;
   documents: Document[];
   nodesByDocument: Record<string, ASTNode[]>;
   workItems: WorkItem[];
@@ -30,6 +33,7 @@ export function buildDemoCorpus(): {
     processing_status: "COMPLETED",
     effective_date: "2026-01-01",
     is_latest_version: true,
+    workspace_id: wsId,
   };
 
   const doc2: Document = {
@@ -47,6 +51,7 @@ export function buildDemoCorpus(): {
     processing_status: "COMPLETED",
     effective_date: "2026-02-01",
     is_latest_version: true,
+    workspace_id: wsId,
   };
 
   const doc3: Document = {
@@ -64,6 +69,7 @@ export function buildDemoCorpus(): {
     processing_status: "COMPLETED",
     effective_date: "2026-02-10",
     is_latest_version: true,
+    workspace_id: wsId,
   };
 
   const doc4: Document = {
@@ -81,18 +87,23 @@ export function buildDemoCorpus(): {
     processing_status: "COMPLETED",
     effective_date: "2026-02-14",
     is_latest_version: true,
+    workspace_id: wsId,
   };
 
   const n1Id = uid();
   const n2Id = uid();
   const n3Id = uid();
   const n4Id = uid();
-  const n5Id = uid();
-  const n6Id = uid();
+  const n5NodeId = uid();
+  const q1Id = uid();
+  const q2Id = uid();
+  const q8Id = uid();
+  const q11Id = uid();
   const n7Id = uid();
+  const j2Id = uid();
   const n8Id = uid();
 
-  // Bottom-up PDF point space coordinates calibrated for 792pt height pages
+  // Bottom-up PDF point space coordinates calibrated for 612x792pt pages
   const nodesByDocument: Record<string, ASTNode[]> = {
     [doc1Id]: [
       {
@@ -100,110 +111,244 @@ export function buildDemoCorpus(): {
         document_id: doc1Id,
         node_type: "SECTION",
         section_path: "§ 2.1 Identity & Access",
-        verbatim_text: "Access control requires multifactor authentication for privileged accounts across all production environments.",
+        verbatim_text:
+          "Access control requires multifactor authentication for privileged accounts across all production environments.",
         structured_payload: null,
         page_number: 4,
         bounding_box: { x0: 72, y0: 597, x1: 520, y1: 652 },
         ocr_confidence: 0.99,
         node_order: 1,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc1Id,
+          page: 4,
+          bbox: [72, 597, 520, 652],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n1Id,
+          checksum: doc1.ast_checksum,
+        },
       },
       {
         id: n2Id,
         document_id: doc1Id,
         node_type: "SECTION",
         section_path: "§ 3.4 Cryptographic Standards",
-        verbatim_text: "Encryption at rest uses AES-256 and keys are rotated annually via automated KMS schedules.",
+        verbatim_text:
+          "Encryption at rest uses AES-256 and keys are rotated annually via automated KMS schedules.",
         structured_payload: null,
         page_number: 7,
         bounding_box: { x0: 72, y0: 427, x1: 510, y1: 482 },
         ocr_confidence: 0.99,
         node_order: 2,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc1Id,
+          page: 7,
+          bbox: [72, 427, 510, 482],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n2Id,
+          checksum: doc1.ast_checksum,
+        },
       },
       {
         id: n3Id,
         document_id: doc1Id,
         node_type: "SECTION",
         section_path: "§ 4.2 Audit Trails",
-        verbatim_text: "Audit logs are retained for 7 years in immutable WORM storage with daily cryptographic integrity validation.",
+        verbatim_text:
+          "Audit logs are retained for 7 years in immutable WORM storage with daily cryptographic integrity validation.",
         structured_payload: null,
         page_number: 12,
         bounding_box: { x0: 72, y0: 517, x1: 530, y1: 572 },
         ocr_confidence: 0.98,
         node_order: 3,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc1Id,
+          page: 12,
+          bbox: [72, 517, 530, 572],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n3Id,
+          checksum: doc1.ast_checksum,
+        },
       },
       {
         id: n4Id,
         document_id: doc1Id,
         node_type: "SECTION",
         section_path: "§ 5.1 Business Continuity",
-        verbatim_text: "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
+        verbatim_text:
+          "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
         structured_payload: null,
         page_number: 15,
         bounding_box: { x0: 72, y0: 322, x1: 490, y1: 372 },
         ocr_confidence: 0.98,
         node_order: 4,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc1Id,
+          page: 15,
+          bbox: [72, 322, 490, 372],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n4Id,
+          checksum: doc1.ast_checksum,
+        },
       },
       {
-        id: uid(),
+        id: n5NodeId,
         document_id: doc1Id,
         node_type: "SECTION",
         section_path: "§ 6.3 Incident Response SLA",
-        verbatim_text: "Confirmed security incidents require customer notification within 24 hours of verification.",
+        verbatim_text:
+          "Confirmed security incidents require customer notification within 24 hours of verification.",
         structured_payload: null,
         page_number: 17,
         bounding_box: { x0: 72, y0: 582, x1: 515, y1: 632 },
         ocr_confidence: 0.99,
         node_order: 5,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc1Id,
+          page: 17,
+          bbox: [72, 582, 515, 632],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n5NodeId,
+          checksum: doc1.ast_checksum,
+        },
       },
     ],
     [doc2Id]: [
       {
-        id: n5Id,
+        id: q1Id,
         document_id: doc2Id,
         node_type: "TABLE_ROW",
         section_path: "Questionnaire Row 1",
-        verbatim_text: "Does the company enforce MFA for privileged accounts? -> Yes, enforced via SAML 2.0 and hardware security keys.",
-        structured_payload: { row: 1, col_A: "MFA Enforced", col_B: "Yes" },
+        verbatim_text:
+          "Does the company enforce MFA for privileged accounts? -> Yes, enforced via SAML 2.0 and hardware security keys.",
+        structured_payload: {
+          sheet_name: "Questionnaire",
+          row_index: 1,
+          row: 1,
+          col_A: "MFA Enforced",
+          col_B: "Yes",
+        },
         page_number: 1,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 1,
+        locator: {
+          source_type: "xlsx",
+          doc_id: doc2Id,
+          sheet: "Questionnaire",
+          row: 1,
+          col_range: "A1:B1",
+          node_id: q1Id,
+          checksum: doc2.ast_checksum,
+        },
       },
       {
-        id: n6Id,
+        id: q2Id,
         document_id: doc2Id,
         node_type: "TABLE_ROW",
         section_path: "Questionnaire Row 2",
-        verbatim_text: "Which encryption standard is used at rest? -> AES-256 for all databases and object buckets.",
-        structured_payload: { row: 2, col_A: "Encryption at Rest", col_B: "AES-256" },
+        verbatim_text:
+          "Which encryption standard is used at rest? -> AES-256 for all databases and object buckets.",
+        structured_payload: {
+          sheet_name: "Questionnaire",
+          row_index: 2,
+          row: 2,
+          col_A: "Encryption at Rest",
+          col_B: "AES-256",
+        },
         page_number: 1,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 2,
+        locator: {
+          source_type: "xlsx",
+          doc_id: doc2Id,
+          sheet: "Questionnaire",
+          row: 2,
+          col_range: "A2:B2",
+          node_id: q2Id,
+          checksum: doc2.ast_checksum,
+        },
       },
       {
-        id: uid(),
+        id: q8Id,
         document_id: doc2Id,
         node_type: "TABLE_ROW",
         section_path: "Questionnaire Row 8",
-        verbatim_text: "EU customer data is localized to Frankfurt eu-central-1 with Standard Contractual Clauses.",
-        structured_payload: { row: 8, col_A: "EU Data Residency", col_B: "Frankfurt" },
+        verbatim_text:
+          "EU customer data is localized to Frankfurt eu-central-1 with Standard Contractual Clauses.",
+        structured_payload: {
+          sheet_name: "Questionnaire",
+          row_index: 8,
+          row: 8,
+          col_A: "EU Data Residency",
+          col_B: "Frankfurt",
+        },
         page_number: 1,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 3,
+        locator: {
+          source_type: "xlsx",
+          doc_id: doc2Id,
+          sheet: "Questionnaire",
+          row: 8,
+          col_range: "A8:B8",
+          node_id: q8Id,
+          checksum: doc2.ast_checksum,
+        },
       },
       {
-        id: uid(),
+        id: q11Id,
         document_id: doc2Id,
         node_type: "TABLE_ROW",
         section_path: "Questionnaire Row 11",
-        verbatim_text: "Provide the vendor's cyber insurance limit. -> [Unanswered - Evidence Missing in Corpus]",
-        structured_payload: { row: 11, col_A: "Cyber Insurance Limit", col_B: "" },
+        verbatim_text:
+          "Provide the vendor's cyber insurance limit. -> [Unanswered - Evidence Missing in Corpus]",
+        structured_payload: {
+          sheet_name: "Questionnaire",
+          row_index: 11,
+          row: 11,
+          col_A: "Cyber Insurance Limit",
+          col_B: "",
+        },
         page_number: 1,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 4,
+        locator: {
+          source_type: "xlsx",
+          doc_id: doc2Id,
+          sheet: "Questionnaire",
+          row: 11,
+          col_range: "A11:B11",
+          node_id: q11Id,
+          checksum: doc2.ast_checksum,
+        },
       },
     ],
     [doc3Id]: [
@@ -211,25 +356,44 @@ export function buildDemoCorpus(): {
         id: n7Id,
         document_id: doc3Id,
         node_type: "JSON_RULE",
-        section_path: "rules.wildcard-admin",
+        section_path: "$.rules.wildcard-admin",
         verbatim_text: '{"effect": "Allow", "action": "s3:*", "resource": "*"}',
         structured_payload: { effect: "Allow", action: "s3:*", resource: "*" },
         page_number: null,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 1,
+        locator: {
+          source_type: "json",
+          doc_id: doc3Id,
+          json_path: "$.rules.wildcard-admin",
+          node_id: n7Id,
+          checksum: doc3.ast_checksum,
+        },
       },
       {
-        id: uid(),
+        id: j2Id,
         document_id: doc3Id,
         node_type: "JSON_RULE",
-        section_path: "rules.production-read",
-        verbatim_text: '{"effect": "Allow", "action": "s3:GetObject", "resource": "arn:aws:s3:::prod/*"}',
-        structured_payload: { effect: "Allow", action: "s3:GetObject", resource: "arn:aws:s3:::prod/*" },
+        section_path: "$.rules.production-read",
+        verbatim_text:
+          '{"effect": "Allow", "action": "s3:GetObject", "resource": "arn:aws:s3:::prod/*"}',
+        structured_payload: {
+          effect: "Allow",
+          action: "s3:GetObject",
+          resource: "arn:aws:s3:::prod/*",
+        },
         page_number: null,
         bounding_box: null,
         ocr_confidence: 1.0,
         node_order: 2,
+        locator: {
+          source_type: "json",
+          doc_id: doc3Id,
+          json_path: "$.rules.production-read",
+          node_id: j2Id,
+          checksum: doc3.ast_checksum,
+        },
       },
     ],
     [doc4Id]: [
@@ -238,12 +402,27 @@ export function buildDemoCorpus(): {
         document_id: doc4Id,
         node_type: "SCAN_STAMP",
         section_path: "Scanned Page 1 Bottom Margin",
-        verbatim_text: "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14 — uncapped indemnification override for third-party security incidents.",
+        verbatim_text:
+          "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14 — uncapped indemnification override for third-party security incidents.",
         structured_payload: null,
         page_number: 1,
         bounding_box: { x0: 60, y0: 32, x1: 540, y1: 112 },
         ocr_confidence: 0.81,
         node_order: 1,
+        locator: {
+          source_type: "pdf",
+          doc_id: doc4Id,
+          page: 1,
+          bbox: [60, 32, 540, 112],
+          coord_system: "pdf_user_space_bl_pt",
+          page_width: 612,
+          page_height: 792,
+          crop_box: [0, 0, 612, 792],
+          rotation: 0,
+          node_id: n8Id,
+          checksum: doc4.ast_checksum,
+          is_scan: true,
+        },
       },
     ],
   };
@@ -259,27 +438,39 @@ export function buildDemoCorpus(): {
       priority_tier: "P2_MEDIUM",
       priority_score: 28,
       prompt_or_question: "Does the company enforce MFA for privileged accounts?",
-      fluent_output: "Access control requires multifactor authentication for all privileged accounts across production environments.",
+      fluent_output:
+        "Access control requires multifactor authentication for all privileged accounts across production environments.",
       structured_facts: [
         {
           fact_type: "CONTROL",
           value: "MFA Required",
-          verbatim_quote: "Access control requires multifactor authentication for privileged accounts.",
+          verbatim_quote:
+            "Access control requires multifactor authentication for privileged accounts.",
           ast_node_id: n1Id,
           confidence: 0.99,
         },
       ],
       verified_citations: [
         {
-          quote: "Access control requires multifactor authentication for privileged accounts.",
+          quote:
+            "Access control requires multifactor authentication for privileged accounts.",
           ast_node_id: n1Id,
           page_number: 4,
           document_filename: doc1.filename,
+          bounding_box: { x0: 72, y0: 597, x1: 520, y1: 652 },
+          locator: nodesByDocument[doc1Id][0].locator,
+          confidence_score: 100,
+          region_match_score: 100,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
-      gate_telemetry: { citation_match: 100, critical_logprob: 0.99, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 100,
+        critical_logprob: 0.99,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 3600000).toISOString(),
     },
     {
@@ -292,12 +483,14 @@ export function buildDemoCorpus(): {
       priority_tier: "P2_MEDIUM",
       priority_score: 32,
       prompt_or_question: "Which encryption standard is used at rest?",
-      fluent_output: "All production datastores are encrypted at rest using AES-256 with keys rotated annually via automated KMS schedules.",
+      fluent_output:
+        "All production datastores are encrypted at rest using AES-256 with keys rotated annually via automated KMS schedules.",
       structured_facts: [
         {
           fact_type: "ENCRYPTION",
           value: "AES-256",
-          verbatim_quote: "Encryption at rest uses AES-256 and keys are rotated annually.",
+          verbatim_quote:
+            "Encryption at rest uses AES-256 and keys are rotated annually.",
           ast_node_id: n2Id,
           confidence: 0.99,
         },
@@ -308,11 +501,20 @@ export function buildDemoCorpus(): {
           ast_node_id: n2Id,
           page_number: 7,
           document_filename: doc1.filename,
+          bounding_box: { x0: 72, y0: 427, x1: 510, y1: 482 },
+          locator: nodesByDocument[doc1Id][1].locator,
+          confidence_score: 100,
+          region_match_score: 100,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
-      gate_telemetry: { citation_match: 100, critical_logprob: 0.99, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 100,
+        critical_logprob: 0.99,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 3400000).toISOString(),
     },
     {
@@ -325,7 +527,8 @@ export function buildDemoCorpus(): {
       priority_tier: "P0_CRITICAL",
       priority_score: 98,
       prompt_or_question: "Does AWS production contain a wildcard S3 action?",
-      fluent_output: "Critical security violation: IAM policy 'wildcard-admin' grants unrestricted 's3:*' access on resource '*'.",
+      fluent_output:
+        "Critical security violation: IAM policy 'wildcard-admin' grants unrestricted 's3:*' access on resource '*'.",
       structured_facts: [
         {
           fact_type: "IAM_RULE",
@@ -341,11 +544,20 @@ export function buildDemoCorpus(): {
           ast_node_id: n7Id,
           page_number: null,
           document_filename: doc3.filename,
+          bounding_box: null,
+          locator: nodesByDocument[doc3Id][0].locator,
+          confidence_score: 99.4,
+          region_match_score: 99.4,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER3_ARBITER",
-      gate_telemetry: { citation_match: 99.4, critical_logprob: 0.97, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 99.4,
+        critical_logprob: 0.97,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 3200000).toISOString(),
     },
     {
@@ -357,23 +569,31 @@ export function buildDemoCorpus(): {
       category: "Liability & Indemnification",
       priority_tier: "P0_CRITICAL",
       priority_score: 96,
-      prompt_or_question: "Review unverified physical stamp note regarding liability cap",
-      fluent_output: "Insufficient evidence in uploaded corpus — degraded scan OCR confidence is 81.2%. Flagged for manual review.",
+      prompt_or_question:
+        "Review unverified physical stamp note regarding liability cap",
+      fluent_output:
+        "Insufficient evidence in uploaded corpus — degraded scan OCR confidence is 81.2%. Flagged for manual review.",
       structured_facts: [
         {
           fact_type: "STAMP_NOTE",
           value: "Uncapped indemnification override",
-          verbatim_quote: "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14 — uncapped indemnification override",
+          verbatim_quote:
+            "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14 — uncapped indemnification override",
           ast_node_id: n8Id,
           confidence: 0.81,
         },
       ],
       verified_citations: [
         {
-          quote: "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14",
+          quote:
+            "[LOW_CONFIDENCE] STAMP NOTE: Compliance addendum reviewed 2026-02-14",
           ast_node_id: n8Id,
           page_number: 1,
           document_filename: doc4.filename,
+          bounding_box: { x0: 60, y0: 32, x1: 540, y1: 112 },
+          locator: nodesByDocument[doc4Id][0].locator,
+          confidence_score: 81.2,
+          region_match_score: 81.2,
         },
       ],
       verification_status: "NEEDS_HUMAN_VERIFICATION",
@@ -396,7 +616,8 @@ export function buildDemoCorpus(): {
       priority_tier: "P0_CRITICAL",
       priority_score: 100,
       prompt_or_question: "Provide the vendor's cyber insurance limit.",
-      fluent_output: "Insufficient evidence in uploaded corpus — flagged for manual review.",
+      fluent_output:
+        "Insufficient evidence in uploaded corpus — flagged for manual review.",
       structured_facts: [],
       verified_citations: [],
       verification_status: "INSUFFICIENT_EVIDENCE",
@@ -419,22 +640,29 @@ export function buildDemoCorpus(): {
       priority_tier: "P1_HIGH",
       priority_score: 74,
       prompt_or_question: "What is the password rotation conflict between policies?",
-      fluent_output: "Arbiter resolved conflict: 2026 SOC 2 supersedes 2023 legacy policy. 90-day password rotation is deprecated in favor of continuous SAML 2.0 SSO + hardware MFA.",
+      fluent_output:
+        "Arbiter resolved conflict: 2026 SOC 2 supersedes 2023 legacy policy. 90-day password rotation is deprecated in favor of continuous SAML 2.0 SSO + hardware MFA.",
       structured_facts: [
         {
           fact_type: "POLICY_SUPERSEDED",
           value: "90-day rotation deprecated",
-          verbatim_quote: "Access control requires multifactor authentication for privileged accounts.",
+          verbatim_quote:
+            "Access control requires multifactor authentication for privileged accounts.",
           ast_node_id: n1Id,
           confidence: 0.98,
         },
       ],
       verified_citations: [
         {
-          quote: "Access control requires multifactor authentication for privileged accounts.",
+          quote:
+            "Access control requires multifactor authentication for privileged accounts.",
           ast_node_id: n1Id,
           page_number: 4,
           document_filename: doc1.filename,
+          bounding_box: { x0: 72, y0: 597, x1: 520, y1: 652 },
+          locator: nodesByDocument[doc1Id][0].locator,
+          confidence_score: 98.2,
+          region_match_score: 98.2,
         },
       ],
       verification_status: "VERIFIED",
@@ -458,27 +686,39 @@ export function buildDemoCorpus(): {
       priority_tier: "P2_MEDIUM",
       priority_score: 35,
       prompt_or_question: "Which data retention control is documented?",
-      fluent_output: "Audit logs are retained for 7 years in immutable WORM storage with daily cryptographic integrity validation.",
+      fluent_output:
+        "Audit logs are retained for 7 years in immutable WORM storage with daily cryptographic integrity validation.",
       structured_facts: [
         {
           fact_type: "RETENTION_TERM",
           value: "7 Years WORM",
-          verbatim_quote: "Audit logs are retained for 7 years in immutable WORM storage.",
+          verbatim_quote:
+            "Audit logs are retained for 7 years in immutable WORM storage.",
           ast_node_id: n3Id,
           confidence: 0.98,
         },
       ],
       verified_citations: [
         {
-          quote: "Audit logs are retained for 7 years in immutable WORM storage.",
+          quote:
+            "Audit logs are retained for 7 years in immutable WORM storage.",
           ast_node_id: n3Id,
           page_number: 12,
           document_filename: doc1.filename,
+          bounding_box: { x0: 72, y0: 517, x1: 530, y1: 572 },
+          locator: nodesByDocument[doc1Id][2].locator,
+          confidence_score: 98.5,
+          region_match_score: 98.5,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
-      gate_telemetry: { citation_match: 98.5, critical_logprob: 0.98, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 98.5,
+        critical_logprob: 0.98,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 2400000).toISOString(),
     },
     {
@@ -491,27 +731,39 @@ export function buildDemoCorpus(): {
       priority_tier: "P2_MEDIUM",
       priority_score: 40,
       prompt_or_question: "What are the documented RTO and RPO targets?",
-      fluent_output: "The platform maintains a Recovery Time Objective (RTO) of 4 hours and Recovery Point Objective (RPO) of 1 hour across primary availability zones.",
+      fluent_output:
+        "The platform maintains a Recovery Time Objective (RTO) of 4 hours and Recovery Point Objective (RPO) of 1 hour across primary availability zones.",
       structured_facts: [
         {
           fact_type: "DR_METRIC",
           value: "RTO 4h / RPO 1h",
-          verbatim_quote: "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
+          verbatim_quote:
+            "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
           ast_node_id: n4Id,
           confidence: 0.98,
         },
       ],
       verified_citations: [
         {
-          quote: "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
+          quote:
+            "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
           ast_node_id: n4Id,
           page_number: 15,
           document_filename: doc1.filename,
+          bounding_box: { x0: 72, y0: 322, x1: 490, y1: 372 },
+          locator: nodesByDocument[doc1Id][3].locator,
+          confidence_score: 98.9,
+          region_match_score: 98.9,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
-      gate_telemetry: { citation_match: 98.9, critical_logprob: 0.98, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 98.9,
+        critical_logprob: 0.98,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 2200000).toISOString(),
     },
     {
@@ -523,33 +775,46 @@ export function buildDemoCorpus(): {
       category: "Data Privacy & GDPR",
       priority_tier: "P1_HIGH",
       priority_score: 68,
-      prompt_or_question: "Are EU customer records stored exclusively in EU regions?",
-      fluent_output: "All EU customer data is processed and stored in Frankfurt (eu-central-1) with Standard Contractual Clauses (SCCs) in place.",
+      prompt_or_question:
+        "Are EU customer records stored exclusively in EU regions?",
+      fluent_output:
+        "All EU customer data is processed and stored in Frankfurt (eu-central-1) with Standard Contractual Clauses (SCCs) in place.",
       structured_facts: [
         {
           fact_type: "DATA_LOCALIZATION",
           value: "Frankfurt eu-central-1",
-          verbatim_quote: "EU customer data is localized to Frankfurt eu-central-1.",
-          ast_node_id: n6Id,
+          verbatim_quote:
+            "EU customer data is localized to Frankfurt eu-central-1.",
+          ast_node_id: q8Id,
           confidence: 0.99,
         },
       ],
       verified_citations: [
         {
           quote: "EU customer data is localized to Frankfurt eu-central-1.",
-          ast_node_id: n6Id,
+          ast_node_id: q8Id,
           page_number: 1,
           document_filename: doc2.filename,
+          bounding_box: null,
+          locator: nodesByDocument[doc2Id][2].locator,
+          confidence_score: 99.1,
+          region_match_score: 99.1,
         },
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
-      gate_telemetry: { citation_match: 99.1, critical_logprob: 0.99, failed_citations: [], failed_logprobs: [] },
+      gate_telemetry: {
+        citation_match: 99.1,
+        critical_logprob: 0.99,
+        failed_citations: [],
+        failed_logprobs: [],
+      },
       created_at: new Date(Date.now() - 2000000).toISOString(),
     },
   ];
 
   return {
+    workspaceId: wsId,
     documents: [doc1, doc2, doc3, doc4],
     nodesByDocument,
     workItems,

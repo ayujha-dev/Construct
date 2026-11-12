@@ -9,10 +9,12 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from sqlalchemy import select
+
 from bert.api.main import app, startup
 from bert.api.schemas import EscalationActionRequest
 from bert.models.base import SessionFactory
-from bert.models.documents import Document, PriorityTier, VerificationStatus, WorkItem
+from bert.models.documents import AuditLog, Document, PriorityTier, VerificationStatus, WorkItem
 
 
 # ==============================================================================
@@ -66,14 +68,17 @@ async def _seed_one_work_item() -> tuple[str, str]:
 # 1. Pydantic Model Unit Validation Tests
 # ==============================================================================
 
-@pytest.mark.parametrize("action", ["manual_correction", "retry", "skip", "approve", "counsel"])
-def test_schema_accepts_all_five_valid_actions(action: str) -> None:
-    """Verify that all 5 specified escalation actions instantiate cleanly without ValidationError."""
+@pytest.mark.parametrize("action", ["manual_correction", "retry", "skip", "approve", "counsel", "undo"])
+def test_schema_accepts_all_valid_actions(action: str) -> None:
+    """Verify that all 6 specified escalation actions instantiate cleanly without ValidationError."""
     req = EscalationActionRequest(action=action)  # type: ignore[arg-type]
     assert req.action == action
     assert req.note is None
     assert req.correction is None
     assert req.manual_payload is None
+    assert req.assignee is None
+    assert req.actor is None
+    assert req.reason_code is None
 
 
 @pytest.mark.parametrize(
@@ -173,8 +178,15 @@ def test_schema_rejects_invalid_manual_payload_type(invalid_payload: dict[str, A
             "VERIFIED",
         ),
         (
-            {"action": "counsel", "note": "Referral to external legal counsel", "manual_payload": {"firm": "Cooley"}},
-            "VERIFIED",
+            {
+                "action": "counsel",
+                "note": "Referral to external legal counsel",
+                "assignee": "Jane Doe, General Counsel",
+                "actor": "Alice Reviewer",
+                "reason_code": "UNCAPPED_INDEMNITY",
+                "manual_payload": {"firm": "Cooley"},
+            },
+            "ESCALATED_LEGAL",
         ),
         (
             {"action": "skip", "note": "Non-applicable finding"},
@@ -194,7 +206,7 @@ async def test_endpoint_resolves_all_five_actions_without_422(
     action_payload: dict[str, Any],
     expected_status: str,
 ) -> None:
-    """Verify that all 5 actions resolve successfully via POST /api/v1/escalations/{id}/resolve without 422."""
+    """Verify that all 5 resolution actions update status and audit fields accurately."""
     await startup()
     _, work_item_id = await _seed_one_work_item()
 
@@ -208,6 +220,28 @@ async def test_endpoint_resolves_all_five_actions_without_422(
         data = resp.json()
         assert data["id"] == work_item_id
         assert data["verification_status"] == expected_status
+        assert data["can_undo"] is True
+
+        if action_payload["action"] == "counsel":
+            # Critical requirement: Flag for Legal preserves original priority_tier & score.
+            assert data["priority_tier"] == "P0_CRITICAL"
+            assert data["priority_score"] == 95
+            assert data["original_priority_tier"] == "P0_CRITICAL"
+            assert data["escalation_assignee"] == "Jane Doe, General Counsel"
+            assert data["escalated_by"] == "Alice Reviewer"
+            assert "UNCAPPED_INDEMNITY" in (data["escalation_reason"] or "")
+            assert data["escalated_at"] is not None
+
+            # ESCALATED_LEGAL stays visible in the unresolved escalations queue.
+            queue_resp = await client.get("/api/v1/escalations")
+            assert queue_resp.status_code == 200
+            queued = [row for row in queue_resp.json() if row["work_item_id"] == work_item_id]
+            assert len(queued) == 1
+            assert queued[0]["verification_status"] == "ESCALATED_LEGAL"
+            assert queued[0]["can_undo"] is True
+
+        if action_payload["action"] == "approve":
+            assert data["fluent_output"] != "Marked not applicable by reviewer."
 
 
 @pytest.mark.asyncio
@@ -240,3 +274,83 @@ async def test_endpoint_rejects_invalid_payloads_with_422(bad_payload: dict[str,
         )
 
         assert resp.status_code == 422, f"Expected 422 for payload {bad_payload}, got {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_counsel_escalation_and_undo_round_trip() -> None:
+    """Verify Flag for Legal sets ESCALATED_LEGAL, logs AuditLog with who/when/reason/assignee, and undoes cleanly."""
+    await startup()
+    _, work_item_id = await _seed_one_work_item()
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        # Cannot undo before any resolution has occurred.
+        no_undo = await client.post(f"/api/v1/work-items/{work_item_id}/undo", json={"actor": "Alice"})
+        assert no_undo.status_code == 409
+
+        escalate_resp = await client.post(
+            f"/api/v1/escalations/{work_item_id}/resolve",
+            json={
+                "action": "counsel",
+                "assignee": "Morgan Lee, AGC",
+                "actor": "Bob Compliance",
+                "reason_code": "STATUTORY_AMBIGUITY",
+                "note": "Need counsel opinion on GDPR retention carve-out",
+            },
+        )
+        assert escalate_resp.status_code == 200
+        escalated = escalate_resp.json()
+        assert escalated["verification_status"] == "ESCALATED_LEGAL"
+        assert escalated["priority_tier"] == "P0_CRITICAL"
+        assert escalated["priority_score"] == 95
+        assert escalated["original_priority_tier"] == "P0_CRITICAL"
+        assert escalated["escalation_assignee"] == "Morgan Lee, AGC"
+        assert escalated["escalated_by"] == "Bob Compliance"
+        assert "STATUTORY_AMBIGUITY" in escalated["escalation_reason"]
+        assert "GDPR retention carve-out" in escalated["escalation_reason"]
+        assert escalated["can_undo"] is True
+
+        # Undo via POST /api/v1/work-items/{id}/undo
+        undo_resp = await client.post(
+            f"/api/v1/work-items/{work_item_id}/undo",
+            json={"actor": "Bob Compliance", "note": "Reverting accidental legal flag"},
+        )
+        assert undo_resp.status_code == 200
+        restored = undo_resp.json()
+        assert restored["verification_status"] == "NEEDS_HUMAN_VERIFICATION"
+        assert restored["priority_tier"] == "P0_CRITICAL"
+        assert restored["priority_score"] == 95
+        assert restored["fluent_output"] == "Needs human verification."
+        assert restored["escalation_assignee"] is None
+        assert restored["escalation_reason"] is None
+        assert restored["can_undo"] is False
+
+        # Re-escalate and undo via /resolve action="undo"
+        re_escalate = await client.post(
+            f"/api/v1/escalations/{work_item_id}/resolve",
+            json={"action": "counsel", "assignee": "Legal Team", "actor": "Bob"},
+        )
+        assert re_escalate.status_code == 200
+        assert re_escalate.json()["verification_status"] == "ESCALATED_LEGAL"
+
+        resolve_undo = await client.post(
+            f"/api/v1/escalations/{work_item_id}/resolve",
+            json={"action": "undo", "actor": "Bob"},
+        )
+        assert resolve_undo.status_code == 200
+        assert resolve_undo.json()["verification_status"] == "NEEDS_HUMAN_VERIFICATION"
+        assert resolve_undo.json()["can_undo"] is False
+
+    async with SessionFactory() as session:
+        logs = list(
+            (await session.execute(select(AuditLog).where(AuditLog.agent_name == "Human Review").order_by(AuditLog.id)))
+            .scalars()
+            .all()
+        )
+    actions = [log.action for log in logs]
+    assert "ESCALATION_COUNSEL" in actions
+    assert "ESCALATION_UNDO" in actions
+    counsel_log = next(log for log in logs if log.action == "ESCALATION_COUNSEL")
+    assert counsel_log.metadata_json["actor"] == "Bob Compliance"
+    assert counsel_log.metadata_json["assignee"] == "Morgan Lee, AGC"
+    assert counsel_log.metadata_json["when"]
+    assert counsel_log.metadata_json["reason"]

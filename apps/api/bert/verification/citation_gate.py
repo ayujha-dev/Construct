@@ -66,6 +66,26 @@ def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def verify_region_text(
+    claimed_quote: str,
+    region_text: str,
+    *,
+    threshold: float = CITATION_THRESHOLD,
+) -> tuple[bool, float]:
+    """Verify extracted locator region text against a claimed quote (`>= 97%` rapidfuzz)."""
+    normalized_quote = _normalize_whitespace(claimed_quote)
+    normalized_region = _normalize_whitespace(region_text)
+    if not normalized_quote or not normalized_region:
+        return False, 0.0
+    if len(normalized_quote) < 3 and normalized_quote != normalized_region:
+        return False, 0.0
+    score = float(fuzz.partial_ratio(normalized_quote, normalized_region))
+    if len(normalized_quote) > len(normalized_region) * 1.35 + 12:
+        score = min(score, float(fuzz.ratio(normalized_quote, normalized_region)))
+    rounded = round(score, 2)
+    return rounded >= threshold, rounded
+
+
 def _probability(entry: dict[str, Any]) -> float:
     if "probability" in entry:
         return float(entry["probability"])

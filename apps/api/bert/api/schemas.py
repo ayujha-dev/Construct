@@ -3,10 +3,58 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class PDFLocator(BaseModel):
+    source_type: Literal["pdf"] = "pdf"
+    doc_id: str
+    page: int = Field(ge=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    coord_system: Literal["pdf_user_space_bl_pt"] = "pdf_user_space_bl_pt"
+    page_width: float = Field(gt=0)
+    page_height: float = Field(gt=0)
+    crop_box: list[float] = Field(min_length=4, max_length=4)
+    rotation: int = 0
+    node_id: str
+    checksum: str = ""
+
+
+class XLSXLocator(BaseModel):
+    source_type: Literal["xlsx"] = "xlsx"
+    doc_id: str
+    sheet: str
+    row: int = Field(ge=1)
+    col_range: str
+    node_id: str
+    checksum: str = ""
+
+
+class JSONLocator(BaseModel):
+    source_type: Literal["json"] = "json"
+    doc_id: str
+    json_path: str
+    node_id: str
+    checksum: str = ""
+
+
+class TextLocator(BaseModel):
+    source_type: Literal["text"] = "text"
+    doc_id: str
+    page: int = Field(ge=1)
+    line_start: int = Field(ge=1)
+    line_end: int = Field(ge=1)
+    node_id: str
+    checksum: str = ""
+
+
+EvidenceLocator = Annotated[
+    Union[PDFLocator, XLSXLocator, JSONLocator, TextLocator],
+    Field(discriminator="source_type"),
+]
 
 
 class GateTelemetry(BaseModel):
@@ -24,6 +72,8 @@ class FactResponse(BaseModel):
     verbatim_quote: str
     ast_node_id: str
     confidence: float
+    locator: EvidenceLocator | None = None
+    region_match_score: float | None = None
 
 
 class WorkItemResponse(BaseModel):
@@ -43,6 +93,12 @@ class WorkItemResponse(BaseModel):
     verification_status: str
     resolved_by_tier: str
     gate_telemetry: GateTelemetry
+    escalation_reason: str | None = None
+    escalation_assignee: str | None = None
+    escalated_at: datetime | None = None
+    escalated_by: str | None = None
+    original_priority_tier: str | None = None
+    can_undo: bool = False
     created_at: datetime
 
 
@@ -74,6 +130,7 @@ class ASTNodeResponse(BaseModel):
     structured_payload: dict[str, Any] | None
     page_number: int | None
     bounding_box: dict[str, float] | None
+    locator: EvidenceLocator | None = None
     ocr_confidence: float
     node_order: int
 
@@ -90,6 +147,8 @@ class CitationMatch(BaseModel):
     bounding_box: dict[str, float] | None = None
     document_filename: str
     confidence_score: float
+    locator: EvidenceLocator | None = None
+    region_match_score: float | None = None
 
 
 class CopilotChatResponse(BaseModel):
@@ -148,18 +207,72 @@ class JobStartRequest(BaseModel):
 
 class EscalationResponse(BaseModel):
     work_item_id: UUID
+    document_id: UUID | None = None
     reason: str
     prompt_or_question: str
     priority_tier: str
     verification_status: str
     fluent_output: str
+    escalation_reason: str | None = None
+    escalation_assignee: str | None = None
+    escalated_at: datetime | None = None
+    escalated_by: str | None = None
+    original_priority_tier: str | None = None
+    can_undo: bool = False
+    verified_citations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EscalationActionRequest(BaseModel):
-    action: Literal["manual_correction", "retry", "skip", "approve", "counsel"]
+    action: Literal["manual_correction", "retry", "skip", "approve", "counsel", "undo"]
     note: str | None = None
     correction: str | None = None
     manual_payload: dict[str, Any] | None = None
+    assignee: str | None = None
+    actor: str | None = None
+    reason_code: str | None = None
+
+
+class UndoRequest(BaseModel):
+    actor: str | None = None
+    note: str | None = None
+
+
+class SummaryGenerateRequest(BaseModel):
+    document_id: str | UUID | None = None
+    only_critical: bool = False
+    latest_only: bool = False
+
+
+class SummaryKeyFinding(BaseModel):
+    work_item_id: str
+    document_id: str | None = None
+    document_filename: str | None = None
+    priority_tier: str
+    verification_status: str
+    category: str
+    prompt_or_question: str
+    fluent_output: str
+
+
+class ExecutiveSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    workspace_id: UUID | None = None
+    document_id: UUID | None = None
+    only_critical: bool = False
+    latest_only: bool = False
+    total_work_items: int
+    verified_count: int
+    unresolved_count: int
+    escalated_legal_count: int
+    critical_count: int
+    defensibility_score: float
+    summary_text: str
+    markdown: str
+    key_findings: list[SummaryKeyFinding] = Field(default_factory=list)
+    arbiter_resolutions: dict[str, Any] = Field(default_factory=dict)
+    is_stale: bool = False
+    created_at: datetime
 
 
 class SandboxRequest(BaseModel):

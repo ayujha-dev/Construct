@@ -55,8 +55,11 @@ export const tier1Tests = [
         if (auditTabBtn) auditTabBtn.click();
         await new Promise((r) => setTimeout(r, 400));
 
-        // Click a finding card
-        const findingCard = document.querySelector("[data-testid='audit-finding-card'], .audit-finding, .cursor-pointer");
+        // Click a finding card inside the inspector audit tab (prioritize testid before generic fallback)
+        const findingCard =
+          document.querySelector("[data-testid='audit-finding-card']") ||
+          document.querySelector(".audit-finding") ||
+          document.querySelector("[data-testid='right-inspector'] .cursor-pointer");
         if (findingCard) findingCard.click();
         await new Promise((r) => setTimeout(r, 400));
 
@@ -492,14 +495,14 @@ export const tier1Tests = [
     name: "Document Selection Sync to URL",
     tier: 1,
     feature: "F05",
-    description: "Selecting a document from sidebar updates browser URL to include ?doc=<document_id>",
+    description: "Selecting a document from sidebar updates browser URL to include ?workspace= and ?file=<document_id>",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace`);
 
       const urlUpdate = await page.evaluate(async () => {
         const docBtn = Array.from(document.querySelectorAll("button")).find((b) =>
-          b.textContent.includes("Legacy_InfoSec_Policy_2023.pdf")
+          b.textContent.includes("Legacy_InfoSec_Policy_2023.pdf") || b.textContent.includes(".pdf")
         );
         if (!docBtn) return { found: false };
         docBtn.click();
@@ -508,7 +511,11 @@ export const tier1Tests = [
       });
 
       assert(urlUpdate.found, "Document button found in sidebar");
-      assertIncludes(urlUpdate.url, "doc=", "URL contains ?doc= parameter upon selection");
+      assertIncludes(urlUpdate.url, "workspace=", "URL contains stable ?workspace= parameter");
+      assert(
+        urlUpdate.url.includes("file=") || urlUpdate.url.includes("doc="),
+        `URL contains ?file= (or legacy ?doc=) parameter upon selection, got ${urlUpdate.url}`
+      );
     },
   },
   {
@@ -520,8 +527,9 @@ export const tier1Tests = [
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace?page=3`);
+      await sleep(500);
       const url = await page.evaluate(() => window.location.href);
-      assertIncludes(url, "page=3", "URL reflects page parameter");
+      assertIncludes(url, "page=3", "URL preserves page=3 parameter across cold load");
     },
   },
   {
@@ -529,19 +537,21 @@ export const tier1Tests = [
     name: "Deep Link Initial Loading",
     tier: 1,
     feature: "F05",
-    description: "Navigating directly to /workspace?doc=<id>&page=2 mounts workspace with document selected and page 2",
+    description: "Navigating directly to /workspace?doc=<id>&page=2 (or ?file=<id>&page=2) mounts workspace with document selected and page 2",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       const docsRes = await api.getDocuments();
       const docId = docsRes.data[0].id;
 
       await page.goto(`${webUrl}/workspace?doc=${docId}&page=2`);
+      await sleep(500);
       const state = await page.evaluate(() => ({
         url: window.location.href,
         hasViewer: Boolean(document.querySelector(".pdf-viewer, canvas, .spreadsheet-viewer, main")),
       }));
 
-      assertIncludes(state.url, docId, "URL preserves doc parameter");
+      assertIncludes(state.url, docId, "URL preserves backward-compatible doc deep-link parameter");
+      assertIncludes(state.url, "page=2", "URL preserves page parameter");
       assert(state.hasViewer, "Workspace mounts viewer on deep link");
     },
   },
@@ -550,7 +560,7 @@ export const tier1Tests = [
     name: "Citation Deep Link Reflection",
     tier: 1,
     feature: "F05",
-    description: "Clicking a citation card updates both doc and page parameters in browser URL",
+    description: "Clicking a citation card updates document (?file= or ?doc=), workspace, and page parameters in browser URL",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace`);
@@ -565,6 +575,7 @@ export const tier1Tests = [
       });
 
       assert(typeof result === "string", "Query string retrieved");
+      assertIncludes(result, "workspace=", "Citation navigation preserves workspace parameter");
     },
   },
   {
@@ -572,15 +583,15 @@ export const tier1Tests = [
     name: "Browser History Navigation",
     tier: 1,
     feature: "F05",
-    description: "Browser Back button restores previous document selection and page offset",
+    description: "Browser Back button restores previous document/file selection and page offset",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       const docsRes = await api.getDocuments();
       const doc1 = docsRes.data[0].id;
       const doc2 = docsRes.data[1].id;
 
-      await page.goto(`${webUrl}/workspace?doc=${doc1}&page=1`);
-      await page.goto(`${webUrl}/workspace?doc=${doc2}&page=2`);
+      await page.goto(`${webUrl}/workspace?workspace=default&file=${doc1}&page=1`);
+      await page.goto(`${webUrl}/workspace?workspace=default&file=${doc2}&page=2`);
 
       await page.evaluate(() => {
         window.history.back();
@@ -588,7 +599,7 @@ export const tier1Tests = [
       await sleep(800);
       const backUrl = await page.evaluate(() => window.location.href);
 
-      assertIncludes(backUrl, doc1, "History back navigates to previous document state");
+      assertIncludes(backUrl, doc1, "History back navigates to previous file state");
     },
   },
 
@@ -1122,6 +1133,12 @@ export const tier1Tests = [
       await page.goto(`${webUrl}/workspace`);
 
       const userSelect = await page.evaluate(async () => {
+        const viewerBtn = Array.from(document.querySelectorAll("button")).find(
+          (b) => b.textContent.trim() === "Viewer" || b.textContent.trim() === "Visual"
+        );
+        if (viewerBtn) viewerBtn.click();
+        await new Promise((r) => setTimeout(r, 600));
+
         const textLayer = document.querySelector(".textLayer");
         if (!textLayer) return "none";
         return window.getComputedStyle(textLayer).userSelect;

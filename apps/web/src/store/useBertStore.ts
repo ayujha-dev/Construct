@@ -5,13 +5,17 @@ import { type JobExecutionSlice, createJobExecutionSlice } from "./jobExecutionS
 import { type CopilotSlice, createCopilotSlice } from "./copilotSlice";
 import { AGENTS, AGENT_ROLES } from "./simulatorService";
 
+export type { CorpusStatus } from "./documentSlice";
 export type {
   ActiveInspectorTab,
   ActiveViewMode,
   ActiveHighlightBox,
+  WorkspaceNavigator,
 } from "./evidenceInspectionSlice";
+export type { SummaryStatus, UndoToast } from "./jobExecutionSlice";
 
 export { AGENTS, AGENT_ROLES };
+export { registerWorkspaceNavigator } from "./evidenceInspectionSlice";
 
 export type BertState = DocumentSlice & JobExecutionSlice & EvidenceInspectionSlice & CopilotSlice;
 

@@ -15,8 +15,11 @@ export const tier3Tests = [
       const interaction = await page.evaluate(async () => {
         const citation =
           document.querySelector("[data-testid='citation-badge']") ||
-          Array.from(document.querySelectorAll("button")).find((b) => b.textContent.includes("SOC2")) ||
-          document.querySelector(".cursor-pointer");
+          document.querySelector("[data-testid='quote-card']") ||
+          Array.from(document.querySelectorAll("button")).find(
+            (b) => !b.closest("[aria-label='Workspace corpus navigation']") && b.textContent.includes("SOC2")
+          ) ||
+          document.querySelector("[data-testid='right-inspector'] .cursor-pointer");
         if (citation) citation.click();
         await new Promise((r) => setTimeout(r, 600));
 
