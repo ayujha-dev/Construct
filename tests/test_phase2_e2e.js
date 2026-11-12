@@ -309,16 +309,27 @@ async function runPhase2BrowserSuite() {
       assertIncludes(resultsCard.text, "Defensibility Score", "ResultsPage summary shows dynamic Defensibility Score");
       assert(resultsCard.hasDownloadMd, "Download Summary Report button rendered on ResultsPage");
 
-      // Filter Data Source <select> on ResultsPage to an item with 0 critical findings (e.g., Legacy Policy + Critical switch)
+      // Filter Data Source custom <Select /> on ResultsPage to an item with 0 critical findings (e.g., Legacy Policy + Critical switch)
       await page.evaluate(async () => {
-        const select = document.querySelector("#results-data-source");
-        if (select) {
-          const legacyOpt = Array.from(select.options).find((o) =>
-            o.text.includes("Legacy_InfoSec_Policy_2023.pdf")
-          );
-          if (legacyOpt) {
-            select.value = legacyOpt.value;
-            select.dispatchEvent(new Event("change", { bubbles: true }));
+        const trigger = document.querySelector("#results-data-source");
+        if (trigger) {
+          if (trigger.tagName === "SELECT") {
+            const legacyOpt = Array.from(trigger.options).find((o) =>
+              o.text.includes("Legacy_InfoSec_Policy_2023.pdf")
+            );
+            if (legacyOpt) {
+              trigger.value = legacyOpt.value;
+              trigger.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+          } else {
+            trigger.click();
+            await new Promise((r) => setTimeout(r, 150));
+            const legacyOpt = Array.from(document.querySelectorAll("[role='option']")).find((o) =>
+              o.textContent.includes("Legacy_InfoSec_Policy_2023.pdf")
+            );
+            if (legacyOpt) {
+              legacyOpt.click();
+            }
           }
         }
         await new Promise((r) => setTimeout(r, 400));
