@@ -21,6 +21,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Particles } from "../components/ui/Particles";
+import { ENABLE_INTERACTIVE_HOME } from "../config/features";
+import { HomeBackdrop } from "../features/home/background/HomeBackdrop";
 import {
   CLAIM_EVIDENCE_DEMOS,
   LANDING_NAV_ITEMS,
@@ -150,21 +152,28 @@ export function LandingPage() {
   const hasStagedFiles = stagedFiles.length > 0;
 
   return (
-    <div className="w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+    <div className="relative w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+      {ENABLE_INTERACTIVE_HOME && <HomeBackdrop />}
       {/* SECTION 1: Hero & Interactive Intake Card */}
       <section
         id="hero"
-        className="relative bg-[var(--bg-hero)] text-[#F4F1EA] overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14"
+        className={`relative overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14 ${
+          ENABLE_INTERACTIVE_HOME
+            ? "z-10 bg-transparent text-[var(--text-primary)]"
+            : "bg-[var(--bg-hero)] text-[#F4F1EA]"
+        }`}
       >
-        <Particles
-          particleColors={["#F4F1EA", "#82C4EC", "#C8C2B6"]}
-          particleCount={140}
-          speed={0.07}
-          connections={true}
-          moveParticlesOnHover={true}
-          hoverEffect="parallax"
-          className="opacity-70"
-        />
+        {!ENABLE_INTERACTIVE_HOME && (
+          <Particles
+            particleColors={["#F4F1EA", "#82C4EC", "#C8C2B6"]}
+            particleCount={140}
+            speed={0.07}
+            connections={true}
+            moveParticlesOnHover={true}
+            hoverEffect="parallax"
+            className="opacity-70"
+          />
+        )}
 
         <div className="relative z-10 w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           {/* Left Column: Clean Dossier Intake Card */}
@@ -348,17 +357,41 @@ export function LandingPage() {
 
           {/* Right Column: High-Contrast Value Proposition */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left min-w-0">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-hero-card)] text-[#B8DCF2] border border-[#2F4461] text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-[#82C4EC]" />
+            <div
+              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono border ${
+                ENABLE_INTERACTIVE_HOME
+                  ? "bg-[var(--bg-surface)]/90 text-[var(--accent-brand-ink)] border-[var(--border-subtle)] shadow-xs"
+                  : "bg-[var(--bg-hero-card)] text-[#B8DCF2] border-[#2F4461]"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  ENABLE_INTERACTIVE_HOME ? "bg-[var(--accent-brand)]" : "bg-[#82C4EC]"
+                }`}
+              />
               <span>ShieldStaff · DETERMINISTIC EVIDENCE VERIFICATION</span>
             </div>
 
-            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-[#F4F1EA]">
+            <h1
+              className={`font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] ${
+                ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+              }`}
+            >
               Drop files.{" "}
-              <span className="italic font-normal text-[#A8D4F5]">Verify every line.</span>
+              <span
+                className={`italic font-normal ${
+                  ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                }`}
+              >
+                Verify every line.
+              </span>
             </h1>
 
-            <p className="max-w-2xl text-base sm:text-lg text-[#E6E2D8] leading-relaxed mx-auto lg:mx-0">
+            <p
+              className={`max-w-2xl text-base sm:text-lg leading-relaxed mx-auto lg:mx-0 ${
+                ENABLE_INTERACTIVE_HOME ? "text-[var(--text-secondary)]" : "text-[#E6E2D8]"
+              }`}
+            >
               Every answer is tied to a verbatim source quote (&ge;97% rapidfuzz match) or
               flagged for human review. Missing or low-confidence evidence fails closed to
               human triage.
@@ -366,27 +399,69 @@ export function LandingPage() {
 
             {/* Verifiable Guarantees Strip */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   QUOTE GATE
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug tabular-nums">
+                <p
+                  className={`text-xs mt-1 leading-snug tabular-nums ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   &ge;97% rapidfuzz match + &ge;0.92 critical-entity logprob check.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   SHA-256 LEDGER
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
+                <p
+                  className={`text-xs mt-1 leading-snug ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   Every ingested file is SHA-256 checksummed into an immutable Audit Ledger.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   FAIL-CLOSED TRIAGE
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
+                <p
+                  className={`text-xs mt-1 leading-snug ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   Unsupported claims route to human triage instead of unverified prose.
                 </p>
               </div>
@@ -418,7 +493,11 @@ export function LandingPage() {
       {/* SECTION 2: Interactive Claim -> Source Evidence Demo */}
       <section
         id="evidence-demo"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/85 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
       >
         <div
           className="max-w-5xl mx-auto space-y-8"
@@ -634,7 +713,9 @@ export function LandingPage() {
       {/* SECTION 3: 7-Agent Pipeline Visual */}
       <section
         id="how-it-works"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME ? "bg-[var(--bg-canvas)]/70" : "bg-[var(--bg-canvas)]"
+        }`}
       >
         <div className="max-w-6xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
@@ -690,7 +771,11 @@ export function LandingPage() {
       {/* SECTION 4: Verification Gate Explained */}
       <section
         id="security-gate"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/85 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
@@ -737,7 +822,7 @@ export function LandingPage() {
       {/* SECTION 5: Use Cases (Keyboard-Accessible Accordions) */}
       <section
         id="use-cases"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--accent-brand)] text-white"
+        className="relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--accent-brand)] text-white"
       >
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
           <div className="lg:col-span-5 space-y-4">
@@ -825,7 +910,9 @@ export function LandingPage() {
       {/* SECTION 6: Security & Local Mode */}
       <section
         id="local-mode"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME ? "bg-[var(--bg-canvas)]/70" : "bg-[var(--bg-canvas)]"
+        }`}
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
@@ -875,7 +962,13 @@ export function LandingPage() {
       </section>
 
       {/* SECTION 7: Footer */}
-      <footer className="py-10 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-secondary)] border-t border-[var(--border-subtle)]">
+      <footer
+        className={`relative z-10 py-10 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-secondary)] border-t border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/90 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
+      >
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
           <div className="md:col-span-5 space-y-2">
             <div className="flex items-center gap-2">
