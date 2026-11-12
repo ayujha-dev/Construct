@@ -22,7 +22,16 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Particles } from "../components/ui/Particles";
 import { ENABLE_INTERACTIVE_HOME } from "../config/features";
+import { CommandPaletteModal } from "../features/home/CommandPaletteModal";
 import { HomeBackdrop } from "../features/home/background/HomeBackdrop";
+import { EvidenceDemoSection } from "../features/home/sections/EvidenceDemoSection";
+import { HeroEvidenceSection } from "../features/home/sections/HeroEvidenceSection";
+import { PipelineExplorerSection } from "../features/home/sections/PipelineExplorerSection";
+import { RiskTierExplorerSection } from "../features/home/sections/RiskTierExplorerSection";
+import { StoryNavBar } from "../features/home/sections/StoryNavBar";
+import { TriagePreviewSection } from "../features/home/sections/TriagePreviewSection";
+import { UseCasesTabsSection } from "../features/home/sections/UseCasesTabsSection";
+import { VerificationGatePlayground } from "../features/home/sections/VerificationGatePlayground";
 import {
   CLAIM_EVIDENCE_DEMOS,
   LANDING_NAV_ITEMS,
@@ -58,6 +67,175 @@ function HighlightedExcerpt({ text, highlight }: { text: string; highlight: stri
 }
 
 export function LandingPage() {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    if (!ENABLE_INTERACTIVE_HOME || typeof window === "undefined") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  if (ENABLE_INTERACTIVE_HOME) {
+    return (
+      <div className="relative w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+        <HomeBackdrop />
+        <HeroEvidenceSection onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
+        <StoryNavBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
+        <EvidenceDemoSection />
+        <PipelineExplorerSection />
+        <VerificationGatePlayground />
+        <RiskTierExplorerSection />
+        <TriagePreviewSection />
+        <UseCasesTabsSection />
+
+        {/* SECTION: Security & Local Mode */}
+        <section
+          id="local-mode"
+          className="relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/75"
+        >
+          <div className="max-w-5xl mx-auto space-y-10">
+            <div className="max-w-3xl space-y-3">
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
+                SECURITY &amp; LOCAL-FIRST ARCHITECTURE
+              </span>
+              <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
+                Local SQLite, deterministic offline fallback, and cryptographic auditability.
+              </h2>
+              <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
+                Run ShieldStaff directly on your workstation or air-gapped node with SQLite async storage,
+                local vLLM endpoints, or the built-in deterministic simulator—with no mandatory
+                external cloud upload.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {LOCAL_MODE_GUARANTEES.map((item, idx) => {
+                const Icon = idx === 0 ? Cpu : idx === 1 ? Database : HardDrive;
+                return (
+                  <article
+                    key={item.id}
+                    className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 flex flex-col justify-between shadow-xs"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span className="font-mono text-[11px] font-bold text-[var(--accent-brand-ink)]">
+                          {item.tag}
+                        </span>
+                        <Icon size={16} className="text-[var(--accent-brand-ink)]" />
+                      </div>
+                      <h3 className="font-serif text-lg font-semibold text-[var(--text-primary)]">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-2 leading-relaxed">
+                        {item.detail}
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
+                      {item.artifactNote}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="relative z-10 py-10 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-[2px]">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+            <div className="md:col-span-5 space-y-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={14} className="text-[var(--status-verified-ink)] shrink-0" />
+                <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
+                  ShieldStaff · Evidence-Verified Document Intelligence
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-sm">
+                Every answer is tied to a source quote or flagged for review.
+              </p>
+              <div className="text-[11px] font-mono text-[var(--text-muted)]">
+                SQLite Async · Local vLLM / Offline Fallback · SHA-256 Audit Ledger
+              </div>
+            </div>
+
+            <div className="md:col-span-4 space-y-2">
+              <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                Page Sections
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => scrollToSection("hero")}
+                  className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Overview
+                </button>
+                {LANDING_NAV_ITEMS.map((navItem) => (
+                  <button
+                    key={navItem.id}
+                    type="button"
+                    onClick={() => scrollToSection(navItem.id)}
+                    className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                  >
+                    {navItem.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="md:col-span-3 space-y-2">
+              <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                Application Routes
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                <Link
+                  to="/workspace"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Workspace
+                </Link>
+                <Link
+                  to="/triage"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Triage Queue
+                </Link>
+                <Link
+                  to="/results"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Results Report
+                </Link>
+                <Link
+                  to="/results?tab=audit"
+                  className="inline-flex items-center gap-1 text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  <ShieldCheck size={12} />
+                  <span>Audit Ledger</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </footer>
+
+        <CommandPaletteModal
+          open={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      </div>
+    );
+  }
+
+  return <LegacyLandingPage />;
+}
+
+function LegacyLandingPage() {
   const navigate = useNavigate();
   const { uploadFiles, loadDemo, workspaceId } = useBertStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
