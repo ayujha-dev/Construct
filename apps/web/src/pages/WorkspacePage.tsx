@@ -8,10 +8,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { AgentPipelineStepper } from "../components/copilot/AgentPipelineStepper";
 import { BentoCanvas } from "../components/copilot/BentoCanvas";
 import { CopilotStream } from "../components/copilot/CopilotStream";
 import { RightInspectorDrawer } from "../components/copilot/RightInspectorDrawer";
-import { AGENTS, useBertStore } from "../store/useBertStore";
+import { useBertStore } from "../store/useBertStore";
 import { computeWorkItemMetrics } from "../lib/workItemMetrics";
 
 const MIN_INSPECTOR_WIDTH = 240;
@@ -37,8 +38,6 @@ export function WorkspacePage() {
     corpusStatus,
     selectedFileFilterId,
     selectedDocumentId,
-    pauseJob,
-    resumeJob,
     refresh,
   } = useBertStore();
 
@@ -98,22 +97,10 @@ export function WorkspacePage() {
     }
   };
 
-  const isRunning = activeJob?.status === "RUNNING";
-  const isPaused = activeJob?.status === "PAUSED";
-  const agentIndex = activeJob?.current_agent_index ?? 0;
-  const currentAgent = AGENTS[Math.min(agentIndex, AGENTS.length - 1)];
-
   const activeDocId = selectedFileFilterId || activeJob?.current_document_id || selectedDocumentId;
   const activeDoc = activeDocId ? documents.find((d) => d.id === activeDocId) : documents[0];
-  const currentNode = (activeJob?.current_node_index ?? 0) + 1;
 
   const metrics = computeWorkItemMetrics(workItems);
-
-  const telemetryText = isRunning
-    ? `Agent ${agentIndex + 1} (${currentAgent}) is inspecting ${activeDoc?.filename || "source"} (Node ${currentNode})`
-    : isPaused
-      ? `Paused at Agent ${agentIndex + 1} (${currentAgent}) · Reviewer direction active`
-      : "7-Agent Regiment Standby · Evidence Gate Online";
 
   const setMode = (mode: "stream" | "canvas") => {
     const next = new URLSearchParams(searchParams);
@@ -166,38 +153,6 @@ export function WorkspacePage() {
               <span>Bento Canvas</span>
             </button>
           </div>
-        </div>
-
-        {/* Center: Live Agent Telemetry Pill */}
-        <div
-          role="status"
-          aria-live="polite"
-          className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 border border-zinc-200/90 text-xs"
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isRunning ? "bg-blue-600 animate-ping" : isPaused ? "bg-amber-600" : "bg-emerald-600"
-            }`}
-          />
-          <span className="text-zinc-800 font-medium font-ui truncate max-w-xs">{telemetryText}</span>
-          {isRunning && (
-            <button
-              type="button"
-              onClick={() => void pauseJob()}
-              className="ml-1 text-[11px] font-semibold text-amber-900 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-            >
-              Pause Agent
-            </button>
-          )}
-          {isPaused && (
-            <button
-              type="button"
-              onClick={() => void resumeJob()}
-              className="ml-1 text-[11px] font-semibold text-emerald-900 hover:text-emerald-950 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-            >
-              Resume
-            </button>
-          )}
         </div>
 
         {/* Right: Counters + Inspector Controls + Results Button */}
@@ -262,6 +217,9 @@ export function WorkspacePage() {
           </button>
         </div>
       </header>
+
+      {/* Persistent 7-Step Agent Pipeline Stepper */}
+      <AgentPipelineStepper />
 
       {/* 2. Main Content Split Stage */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">

@@ -3,7 +3,10 @@ import {
   AlertTriangle,
   ArrowUp,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
+  Code2,
   Compass,
   Copy,
   FileSpreadsheet,
@@ -24,6 +27,11 @@ import {
   resolveCitationDocument,
 } from "../../lib/evidenceLocators";
 import {
+  formatElapsedMs,
+  formatHumanAgentSummary,
+  parseTimestampMs,
+} from "../../lib/pipelineTelemetry";
+import {
   getMatchBadgeTone,
   itemMatchesDocumentFilter,
   MANUAL_OVERRIDE_REASON_CODES,
@@ -41,7 +49,7 @@ export function CopilotStream() {
     nodesByDocument,
     workItems,
     workItemUndoSnapshots,
-    events,
+    agentRuns,
     activeJob,
     chatMessages,
     asking,
@@ -75,6 +83,8 @@ export function CopilotStream() {
   const [legalReason, setLegalReason] = useState("Flagged for Legal Review and excluded from auto-certification.");
   const [legalAssignee, setLegalAssignee] = useState("Legal Counsel");
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [expandedRawRunIds, setExpandedRawRunIds] = useState<Record<string, boolean>>({});
+  const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamBottomRef = useRef<HTMLDivElement>(null);
@@ -120,14 +130,40 @@ export function CopilotStream() {
     [chatMessages, filteredDoc, selectedFileFilterId]
   );
 
-  const visibleEvents = useMemo(
+  const visibleAgentRuns = useMemo(
     () =>
-      events.filter((ev) => {
+      agentRuns.filter((run) => {
         if (!selectedFileFilterId) return true;
-        return ev.document_id === selectedFileFilterId;
+        return !run.documentId || run.documentId === selectedFileFilterId;
       }),
-    [events, selectedFileFilterId]
+    [agentRuns, selectedFileFilterId]
   );
+
+  const hasRunningCard = useMemo(
+    () =>
+      visibleAgentRuns.some((run) => run.status === "running") &&
+      activeJob?.status !== "PAUSED" &&
+      activeJob?.status !== "COMPLETED" &&
+      activeJob?.status !== "FAILED",
+    [visibleAgentRuns, activeJob?.status]
+  );
+
+  useEffect(() => {
+    if (!hasRunningCard) return;
+    let rafId = 0;
+    let lastTick = 0;
+    const tick = (frameTime: number) => {
+      if (frameTime - lastTick >= 150) {
+        lastTick = frameTime;
+        setLiveNowMs(Date.now());
+      }
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [hasRunningCard]);
 
   const handleSubmitPrompt = async (textToSubmit?: string) => {
     const text = (textToSubmit || promptInput).trim();
@@ -234,7 +270,7 @@ export function CopilotStream() {
 
   useEffect(() => {
     streamBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleChatMessages.length, visibleEvents.length]);
+  }, [visibleChatMessages.length, visibleAgentRuns.length]);
 
   return (
     <div className="flex-1 h-full overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 bg-[#F8F9FA] text-zinc-900">
@@ -528,7 +564,7 @@ export function CopilotStream() {
         <div role="status" aria-live="polite" className="space-y-4 pt-4 border-t border-zinc-200/80">
           <div className="flex items-center justify-between text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
             <span>Agent Telemetry & Verification Stream</span>
-            <span>{visibleEvents.length} Recorded Steps</span>
+            <span>{visibleAgentRuns.length} Recorded Steps</span>
           </div>
 
           {/* Human, Legal, Override & N/A Escalation Cards */}
@@ -1129,58 +1165,149 @@ export function CopilotStream() {
             );
           })}
 
-          {/* Agent Activity Cards */}
-          {visibleEvents.length === 0 ? (
+          {/* Agent Activity Cards (One card per agent run, updated in place) */}
+          {visibleAgentRuns.length === 0 ? (
             <div className="p-8 text-center rounded-2xl bg-white border border-zinc-200/70 text-zinc-600 text-xs">
               {filteredDoc
                 ? `No agent telemetry recorded specifically for ${filteredDoc.filename} in this window.`
                 : "No agent events yet. Click Load Investor Demo Case or upload a document to start."}
             </div>
           ) : (
-            visibleEvents.slice(-15).map((ev, i) => {
-              const agentName = ev.agent_name || "Envoy";
-              const targetDoc =
-                documents.find((d) => d.id === ev.document_id)?.filename ||
-                documents[0]?.filename ||
-                "Corpus";
-              const isComplete = ev.status === "completed";
+            visibleAgentRuns.map((run) => {
+              const targetDocLabel =
+                (run.documentId
+                  ? documents.find((d) => d.id === run.documentId)?.filename
+                  : null) ||
+                run.documentFilename ||
+                "Corpus-wide";
+              const isDone = run.status === "done";
+              const isFailed = run.status === "failed";
+              const startedMs = parseTimestampMs(run.startedAt);
+              const computedElapsed =
+                run.status === "running" && startedMs !== null
+                  ? Math.max(1, liveNowMs - startedMs)
+                  : run.elapsedMs;
+              const elapsedLabel = formatElapsedMs(computedElapsed);
+              const humanSummary = formatHumanAgentSummary({
+                summary: run.summary,
+                details: run.details,
+                agentName: run.agentName,
+                status: run.status,
+                documentFilename: targetDocLabel === "Corpus-wide" ? null : targetDocLabel,
+              });
+              const isRawExpanded = Boolean(expandedRawRunIds[run.id]);
+              const rawPanelId = `raw-json-${run.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+              const rawPayload = run.details ?? run.rawEvent;
 
               return (
                 <div
-                  key={`${ev.type}-${i}`}
-                  className="p-4 rounded-xl bg-white border border-zinc-200/80 shadow-2xs text-xs space-y-2 hover:border-zinc-300 transition-colors"
+                  key={run.id}
+                  data-testid="agent-run-card"
+                  data-agent-name={run.agentName}
+                  data-run-status={run.status}
+                  className={`p-4 rounded-xl bg-white border shadow-2xs text-xs space-y-2 transition-colors ${
+                    isFailed
+                      ? "border-rose-300 bg-rose-50/40"
+                      : isDone
+                        ? "border-zinc-200/90 hover:border-zinc-300"
+                        : "border-blue-300 bg-blue-50/20"
+                  }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center text-[10px] font-bold shrink-0">
-                        {agentName.slice(0, 1)}
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                          isFailed
+                            ? "bg-rose-100 text-rose-900"
+                            : isDone
+                              ? "bg-emerald-100 text-emerald-900"
+                              : "bg-blue-100 text-blue-900"
+                        }`}
+                      >
+                        {run.agentName.slice(0, 1)}
                       </span>
-                      <strong className="font-semibold text-zinc-900">{agentName}</strong>
-                      <span className="text-zinc-600 font-mono text-[10px]">·</span>
-                      <span className="px-2 py-0.5 rounded bg-zinc-100 font-mono text-[10px] text-zinc-700 truncate">
-                        {targetDoc}
+                      <strong className="font-semibold text-zinc-950">{run.agentName}</strong>
+                      <span className="text-zinc-600 text-[11px] font-medium">· {run.role}</span>
+                      <span className="px-2 py-0.5 rounded bg-zinc-100 font-mono text-[10px] text-zinc-800 border border-zinc-200 truncate max-w-[200px]">
+                        {targetDocLabel}
                       </span>
                     </div>
 
-                    <span
-                      className={`font-mono text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${
-                        isComplete
-                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                          : "bg-blue-50 text-blue-800 border border-blue-200"
-                      }`}
-                    >
-                      {isComplete ? "VERIFIED SAFE" : "INSPECTION ACTIVE"}
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {elapsedLabel && (
+                        <span
+                          data-testid="agent-run-elapsed"
+                          className="font-mono text-[10px] font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200"
+                        >
+                          {elapsedLabel}
+                        </span>
+                      )}
+                      <span
+                        className={`font-mono text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          isFailed
+                            ? "bg-rose-100 text-rose-900 border border-rose-300"
+                            : isDone
+                              ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
+                              : "bg-blue-50 text-blue-900 border border-blue-200"
+                        }`}
+                      >
+                        {isFailed ? "FAILED" : isDone ? "DONE" : "RUNNING"}
+                      </span>
+                    </div>
                   </div>
 
-                  <p className="text-zinc-800 text-xs leading-relaxed">
-                    {ev.message || `Agent executed atomic verification pass on ${targetDoc}.`}
+                  <p data-testid="agent-run-summary" className="text-zinc-900 text-xs leading-relaxed">
+                    {humanSummary}
                   </p>
 
-                  <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 pt-1">
-                    <span>Node Index: {(ev.node_index ?? 0) + 1}</span>
-                    <span>rapidfuzz gate: ≥97% match</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-700 pt-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {run.inputHash && (
+                        <span
+                          title={run.inputHash}
+                          className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200"
+                        >
+                          in: {run.inputHash.slice(0, 10)}
+                        </span>
+                      )}
+                      {run.outputHash && (
+                        <span
+                          title={run.outputHash}
+                          className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200"
+                        >
+                          out: {run.outputHash.slice(0, 10)}
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      data-testid="raw-json-toggle"
+                      aria-expanded={isRawExpanded}
+                      aria-controls={rawPanelId}
+                      onClick={() =>
+                        setExpandedRawRunIds((prev) => ({
+                          ...prev,
+                          [run.id]: !prev[run.id],
+                        }))
+                      }
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                    >
+                      <Code2 size={11} />
+                      <span>Raw JSON</span>
+                      {isRawExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                    </button>
                   </div>
+
+                  {isRawExpanded && (
+                    <pre
+                      id={rawPanelId}
+                      data-testid="raw-json-panel"
+                      className="mt-2 p-2.5 rounded-lg bg-zinc-900 text-zinc-100 text-[10px] font-mono overflow-x-auto max-h-56 leading-relaxed"
+                    >
+                      {JSON.stringify(rawPayload, null, 2)}
+                    </pre>
+                  )}
                 </div>
               );
             })

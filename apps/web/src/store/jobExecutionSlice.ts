@@ -1,10 +1,20 @@
 import type { StateCreator } from "zustand";
+import type { WebSocketStatus } from "../hooks/useWebSocket";
 import { bertApi, type SummaryQueryParams } from "../lib/api";
+import {
+  createInitialAgentSteps,
+  hydrateAgentStepsFromJob,
+  normalizeStepStatus,
+  resolveAgentIndex,
+  upsertAgentTelemetryFromEvent,
+} from "../lib/pipelineTelemetry";
 import {
   validateManualOverrideInput,
   validateNotApplicableInput,
 } from "../lib/workItemMetrics";
 import type {
+  AgentRunEntry,
+  AgentStepState,
   AuditLogEntry,
   EscalationActionPayload,
   ExecutiveSummary,
@@ -38,6 +48,11 @@ export interface JobExecutionSlice {
   job: JobExecution | null;
   workItems: WorkItem[];
   events: PipelineEvent[];
+  agentSteps: AgentStepState[];
+  agentRuns: AgentRunEntry[];
+  wsStatus: WebSocketStatus;
+  jobStartedAt: number | null;
+  jobCompletedAt: number | null;
   isSimulating: boolean;
   hasCompletedRun: boolean;
   executiveSummary: ExecutiveSummary | null;
@@ -47,6 +62,8 @@ export interface JobExecutionSlice {
   auditLogs: AuditLogEntry[];
   workItemUndoSnapshots: Record<string, WorkItem>;
   undoToast: UndoToast | null;
+  setWsStatus: (status: WebSocketStatus) => void;
+  syncJobState: (jobId: string) => Promise<JobExecution | null>;
   startJob: (documentId?: string) => Promise<void>;
   pauseJob: () => Promise<void>;
   resumeJob: (instruction?: string) => Promise<void>;
@@ -76,6 +93,19 @@ const DEFAULT_SUMMARY_PARAMS: SummaryQueryParams = {
 };
 
 let corpusEpoch = 0;
+let progressiveDocSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let progressiveWorkItemSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearProgressiveSyncTimers(): void {
+  if (progressiveDocSyncTimer !== null) {
+    globalThis.clearTimeout(progressiveDocSyncTimer);
+    progressiveDocSyncTimer = null;
+  }
+  if (progressiveWorkItemSyncTimer !== null) {
+    globalThis.clearTimeout(progressiveWorkItemSyncTimer);
+    progressiveWorkItemSyncTimer = null;
+  }
+}
 
 function isNetworkFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -87,6 +117,11 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   job: null,
   workItems: [],
   events: [],
+  agentSteps: createInitialAgentSteps(),
+  agentRuns: [],
+  wsStatus: "connecting",
+  jobStartedAt: null,
+  jobCompletedAt: null,
   isSimulating: false,
   hasCompletedRun: false,
   executiveSummary: null,
@@ -97,15 +132,45 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   workItemUndoSnapshots: {},
   undoToast: null,
 
+  setWsStatus: (wsStatus) => set({ wsStatus }),
+
+  syncJobState: async (jobId) => {
+    if (!jobId) return null;
+    const myEpoch = corpusEpoch;
+    try {
+      const job = await bertApi.getJob(jobId);
+      if (myEpoch !== corpusEpoch) return null;
+      const hydrated = hydrateAgentStepsFromJob(job, get().documents);
+      const currentRuns = get().agentRuns;
+      const mergedRuns = currentRuns.length > 0 ? currentRuns : hydrated.agentRuns;
+      set({
+        activeJob: job,
+        job,
+        agentSteps: hydrated.agentSteps,
+        agentRuns: mergedRuns,
+        isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
+        hasCompletedRun: job.status === "COMPLETED" ? true : get().hasCompletedRun,
+      });
+      return job;
+    } catch {
+      return null;
+    }
+  },
+
   startJob: async (documentId) => {
     const docId = documentId ?? get().selectedDocumentId;
     if (!docId) return;
     try {
       const job = await bertApi.startJob(docId);
+      const hydrated = hydrateAgentStepsFromJob(job, get().documents);
       set({
         activeJob: job,
         job,
         workspaceId: job.workspace_id ?? get().workspaceId,
+        agentSteps: hydrated.agentSteps,
+        agentRuns: hydrated.agentRuns,
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
         isSimulating: true,
         hasCompletedRun: false,
         backendAvailable: true,
@@ -168,14 +233,18 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
     }
     try {
       const resumed = await bertApi.resume(job.job_id, instruction);
-      set({
+      const hydrated = hydrateAgentStepsFromJob(resumed, get().documents);
+      const hasTelemetry = hydrated.agentSteps.some((s) => s.status !== "pending");
+      set((s) => ({
         activeJob: resumed,
         job: resumed,
+        ...(hasTelemetry ? { agentSteps: hydrated.agentSteps } : {}),
+        ...(s.agentRuns.length === 0 && hydrated.agentRuns.length > 0 ? { agentRuns: hydrated.agentRuns } : {}),
         isSimulating: true,
         notice: instruction
           ? `Applied instruction: "${instruction}" · Resuming execution.`
           : "Review resumed from checkpoint.",
-      });
+      }));
     } catch {
       resumeLocalSimulation();
       const resumedJob: JobExecution = { ...job, status: "RUNNING" };
@@ -550,12 +619,17 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   appendEvent: (event) => {
     if (event.type === "corpus_reset") {
       cancelLocalSimulation();
+      clearProgressiveSyncTimers();
       corpusEpoch += 1;
       set({
         documents: [],
         nodesByDocument: {},
         workItems: [],
         events: [],
+        agentSteps: createInitialAgentSteps(),
+        agentRuns: [],
+        jobStartedAt: null,
+        jobCompletedAt: null,
         chatMessages: [],
         messages: [],
         executiveSummary: null,
@@ -584,6 +658,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       return;
     }
 
+    const now = Date.now();
     set((state) => {
       let nextJob = state.activeJob;
       if (state.activeJob && (!event.job_id || event.job_id === state.activeJob.job_id)) {
@@ -602,6 +677,11 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         } else if (isJobTransition) {
           newStatus = event.type.replace("JOB_", "") as JobExecution["status"];
         } else if (
+          event.job_status &&
+          ["RUNNING", "PAUSING", "PAUSED", "RESUMING", "COMPLETED", "FAILED"].includes(String(event.job_status))
+        ) {
+          newStatus = String(event.job_status) as JobExecution["status"];
+        } else if (
           event.status &&
           ["RUNNING", "PAUSING", "PAUSED", "RESUMING", "COMPLETED", "FAILED"].includes(event.status)
         ) {
@@ -609,39 +689,143 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
           newStatus = event.status as JobExecution["status"];
         }
 
+        const derivedAgentIdx =
+          event.current_agent_index !== undefined
+            ? event.current_agent_index
+            : event.type === "agent_transition" && event.agent_name
+              ? resolveAgentIndex(event)
+              : state.activeJob.current_agent_index;
+
         nextJob = {
           ...state.activeJob,
           status: newStatus,
-          current_agent_index:
-            event.current_agent_index !== undefined
-              ? event.current_agent_index
-              : state.activeJob.current_agent_index,
+          current_agent_index: derivedAgentIdx,
           current_node_index:
-            event.current_node_index !== undefined
+            event.current_node_index !== undefined && event.current_node_index !== null
               ? event.current_node_index
               : state.activeJob.current_node_index,
           current_document_id:
             event.document_id !== undefined ? event.document_id : state.activeJob.current_document_id,
+          error_message:
+            event.type === "JOB_FAILED"
+              ? (event.message ?? state.activeJob.error_message)
+              : event.type === "JOB_RESUMED"
+                ? null
+                : state.activeJob.error_message,
         };
       }
 
       const isCompleted = event.type === "JOB_COMPLETED" || event.status === "COMPLETED";
       const isPaused = event.type === "JOB_PAUSED" || event.status === "PAUSED";
       const isFailed = event.type === "JOB_FAILED" || event.status === "FAILED";
+      const isResumed = event.type === "JOB_RESUMED" || event.type === "JOB_RESUMING";
+
+      const { agentSteps, agentRuns } = upsertAgentTelemetryFromEvent({
+        agentSteps: state.agentSteps,
+        agentRuns: state.agentRuns,
+        event,
+        documents: state.documents,
+        activeJobId: nextJob?.job_id ?? state.activeJob?.job_id ?? null,
+        now,
+      });
+
+      let nextWorkItems = state.workItems;
+      if (event.type === "work_item" && event.work_item) {
+        const incoming = event.work_item;
+        const exists = state.workItems.some((w) => w.id === incoming.id);
+        nextWorkItems = exists
+          ? state.workItems.map((w) => (w.id === incoming.id ? incoming : w))
+          : [...state.workItems, incoming];
+      }
 
       return {
-        events: [...state.events.slice(-249), { ...event, created_at: event.created_at ?? Date.now() }],
+        events: [...state.events.slice(-249), { ...event, created_at: event.created_at ?? now }],
         activeJob: nextJob,
         job: nextJob,
-        isSimulating: isCompleted || isPaused || isFailed ? false : state.isSimulating || nextJob?.status === "RUNNING",
+        agentSteps,
+        agentRuns,
+        workItems: nextWorkItems,
+        jobStartedAt: state.jobStartedAt ?? (event.type === "agent_transition" ? now : null),
+        jobCompletedAt: isCompleted || isFailed ? now : isResumed ? null : state.jobCompletedAt,
+        isSimulating:
+          isCompleted || isPaused || isFailed
+            ? false
+            : isResumed || state.isSimulating || nextJob?.status === "RUNNING" || nextJob?.status === "RESUMING",
         hasCompletedRun: isCompleted ? true : state.hasCompletedRun,
       };
     });
 
     if (event.type === "JOB_COMPLETED" || event.status === "COMPLETED") {
+      clearProgressiveSyncTimers();
       void get().refresh();
-    } else if (event.type === "summary_generated") {
+      const jobId = event.job_id || get().activeJob?.job_id;
+      if (jobId && get().backendAvailable) {
+        void get().syncJobState(jobId);
+      }
+      return;
+    }
+
+    if (event.type === "summary_generated") {
       void get().loadSummary(get().summaryParams, false);
+      return;
+    }
+
+    // Progressive Inspector Population (online backend only; 0 timers while idle)
+    if (get().backendAvailable) {
+      const myEpoch = corpusEpoch;
+      const isStepCompleted =
+        event.type === "agent_transition" && normalizeStepStatus(event.status) === "done";
+      const agentIdx = event.type === "agent_transition" ? resolveAgentIndex(event) : -1;
+
+      if (isStepCompleted && agentIdx >= 0 && agentIdx <= 2) {
+        const targetDocId = event.document_id ?? null;
+        if (progressiveDocSyncTimer !== null) {
+          globalThis.clearTimeout(progressiveDocSyncTimer);
+        }
+        progressiveDocSyncTimer = globalThis.setTimeout(() => {
+          progressiveDocSyncTimer = null;
+          if (myEpoch !== corpusEpoch || !get().backendAvailable) return;
+          void (async () => {
+            try {
+              const documents = await bertApi.getDocuments();
+              if (myEpoch !== corpusEpoch || documents.length === 0) return;
+              const latest = get();
+              const selectedDocumentId =
+                latest.selectedDocumentId && documents.some((d) => d.id === latest.selectedDocumentId)
+                  ? latest.selectedDocumentId
+                  : documents[0].id;
+              set({ documents, corpusStatus: "ready", corpusError: null, selectedDocumentId });
+              const docToLoad =
+                (targetDocId && documents.some((d) => d.id === targetDocId) ? targetDocId : null) ??
+                selectedDocumentId;
+              if (docToLoad) {
+                await get().loadNodes(docToLoad);
+              }
+            } catch {
+              /* ignore transient mid-flight fetch errors */
+            }
+          })();
+        }, 120);
+      }
+
+      if (event.type === "work_item" || (isStepCompleted && agentIdx >= 4)) {
+        if (progressiveWorkItemSyncTimer !== null) {
+          globalThis.clearTimeout(progressiveWorkItemSyncTimer);
+        }
+        progressiveWorkItemSyncTimer = globalThis.setTimeout(() => {
+          progressiveWorkItemSyncTimer = null;
+          if (myEpoch !== corpusEpoch || !get().backendAvailable) return;
+          void (async () => {
+            try {
+              const workItems = await bertApi.getWorkItems();
+              if (myEpoch !== corpusEpoch) return;
+              set({ workItems });
+            } catch {
+              /* ignore transient mid-flight fetch errors */
+            }
+          })();
+        }, 160);
+      }
     }
   },
 
@@ -734,6 +918,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
 
   resetWorkspace: async () => {
     cancelLocalSimulation();
+    clearProgressiveSyncTimers();
     const myEpoch = ++corpusEpoch;
     if (get().backendAvailable) {
       try {
@@ -748,6 +933,10 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       nodesByDocument: {},
       workItems: [],
       events: [],
+      agentSteps: createInitialAgentSteps(),
+      agentRuns: [],
+      jobStartedAt: null,
+      jobCompletedAt: null,
       chatMessages: [],
       messages: [],
       executiveSummary: null,
@@ -778,12 +967,17 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
 
   loadDemo: async () => {
     cancelLocalSimulation();
+    clearProgressiveSyncTimers();
     const myEpoch = ++corpusEpoch;
     // Atomic transient-state clear while keeping existing documents intact during load to avoid 0-file flash
     set({
       corpusStatus: "loading",
       corpusError: null,
       events: [],
+      agentSteps: createInitialAgentSteps(),
+      agentRuns: [],
+      jobStartedAt: Date.now(),
+      jobCompletedAt: null,
       chatMessages: [],
       messages: [],
       workItems: [],
@@ -811,9 +1005,12 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       const job = await bertApi.startDemo();
       if (myEpoch !== corpusEpoch) return;
       const stillRunning = job.status === "RUNNING" || job.status === "RESUMING";
+      const hydrated = hydrateAgentStepsFromJob(job, get().documents);
       set({
         activeJob: job,
         job,
+        agentSteps: hydrated.agentSteps,
+        agentRuns: hydrated.agentRuns,
         workspaceId: job.workspace_id,
         isSimulating: stillRunning,
         hasCompletedRun: job.status === "COMPLETED",
@@ -847,8 +1044,8 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
 
       set({
         documents: demo.documents,
-        nodesByDocument: demo.nodesByDocument,
-        workItems: demo.workItems,
+        nodesByDocument: {},
+        workItems: [],
         workspaceId: demo.workspaceId,
         corpusStatus: "ready",
         corpusError: null,
@@ -856,14 +1053,20 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         selectedFileFilterId: null,
         activeJob: job,
         job,
+        agentSteps: createInitialAgentSteps(job.job_id),
+        agentRuns: [],
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
         isSimulating: true,
         hasCompletedRun: false,
         backendAvailable: false,
         notice: `Investor demo case loaded · ${demo.documents.length} documents active in corpus.`,
       });
 
-      void get().loadSummary(get().summaryParams, true);
-      void runLocalMultiAgentReview(set, get, demo.documents, job);
+      void runLocalMultiAgentReview(set, get, demo.documents, job, {
+        nodesByDocument: demo.nodesByDocument,
+        workItems: demo.workItems,
+      });
     }
   },
 });

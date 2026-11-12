@@ -191,6 +191,7 @@ export interface JobExecution {
   current_node_index: number;
   checkpoint_id: string;
   completed_step_outputs: Record<string, unknown>;
+  step_telemetry?: Array<Record<string, unknown>> | Record<string, unknown> | null;
   user_override_instructions: string[];
   error_message: string | null;
 }
@@ -231,26 +232,74 @@ export interface CopilotChatMessage {
   weak_evidence_reason?: string | null;
 }
 
+export type AgentStepStatus = "pending" | "running" | "done" | "failed";
+
+export interface AgentStepState {
+  agentName: string;
+  index: number;
+  role: string;
+  status: AgentStepStatus;
+  startedAt: string | number | null;
+  completedAt: string | number | null;
+  elapsedMs: number | null;
+  summary: string | null;
+  details: Record<string, unknown> | null;
+  inputHash: string | null;
+  outputHash: string | null;
+  documentId: string | null;
+  documentFilename: string | null;
+  runId: string | null;
+}
+
+export interface AgentRunEntry {
+  id: string;
+  runId: string;
+  jobId: string | null;
+  agentName: string;
+  agentIndex: number;
+  role: string;
+  status: "running" | "done" | "failed";
+  startedAt: string | number | null;
+  completedAt: string | number | null;
+  elapsedMs: number | null;
+  summary: string;
+  details: Record<string, unknown> | null;
+  inputHash: string | null;
+  outputHash: string | null;
+  documentId: string | null;
+  documentFilename: string | null;
+  rawEvent: PipelineEvent;
+}
+
 export interface PipelineEvent {
   type: string;
   created_at?: number;
   agent_name?: string;
   status?: string;
+  job_status?: JobStatus | string;
   latency_ms?: number;
+  started_at?: string | number | null;
+  completed_at?: string | number | null;
   input_hash?: string;
   output_hash?: string;
   document_id?: string | null;
-  node_index?: number;
+  document_filename?: string | null;
+  node_index?: number | null;
   message?: string;
+  summary?: string | null;
+  details?: Record<string, unknown> | null;
   job_id?: string;
+  run_id?: string;
   checkpoint_id?: string;
   paused_at_agent?: string;
   current_agent_index?: number;
-  current_node_index?: number;
+  current_node_index?: number | null;
   passed?: boolean;
   match_score?: number;
   logprob?: number;
   id?: string;
+  work_item?: WorkItem;
+  step_telemetry?: Record<string, unknown> | null;
 }
 
 export interface Escalation {

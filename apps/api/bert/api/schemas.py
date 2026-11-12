@@ -198,6 +198,22 @@ class SeedResponse(BaseModel):
     defensibility_score: int | None = None
 
 
+class AgentStepTelemetry(BaseModel):
+    agent_name: str
+    index: int
+    status: Literal["pending", "running", "done", "failed"] = "pending"
+    started_at: str | None = None
+    completed_at: str | None = None
+    latency_ms: int | None = None
+    summary: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    input_hash: str | None = None
+    output_hash: str | None = None
+    document_id: str | None = None
+    document_filename: str | None = None
+    run_id: str | None = None
+
+
 class JobExecutionResponse(BaseModel):
     job_id: UUID
     workspace_id: UUID
@@ -208,6 +224,7 @@ class JobExecutionResponse(BaseModel):
     current_node_index: int
     checkpoint_id: UUID
     completed_step_outputs: dict[str, Any]
+    step_telemetry: list[AgentStepTelemetry] = Field(default_factory=list)
     user_override_instructions: list[str]
     error_message: str | None
 

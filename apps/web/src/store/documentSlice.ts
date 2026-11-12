@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import { bertApi } from "../lib/api";
 import { deriveNodeLocator } from "../lib/evidenceLocators";
+import { createInitialAgentSteps, hydrateAgentStepsFromJob } from "../lib/pipelineTelemetry";
 import type { ASTNode, Document, JobExecution } from "../types/bert";
 import {
   cancelLocalSimulation,
@@ -138,6 +139,7 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
     try {
       const document = await bertApi.upload(file);
       const job = await bertApi.startJob(document.id);
+      const hydrated = hydrateAgentStepsFromJob(job, [document, ...get().documents]);
       set((state) => ({
         documents: [document, ...state.documents.filter((item) => item.id !== document.id)],
         documentFiles: { ...state.documentFiles, [document.id]: file },
@@ -146,6 +148,10 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         corpusError: null,
         activeJob: job,
         job,
+        agentSteps: hydrated.agentSteps,
+        agentRuns: hydrated.agentRuns,
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
         isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
         hasCompletedRun: job.status === "COMPLETED",
         selectedDocumentId: document.id,
@@ -183,7 +189,7 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         documents: [document, ...state.documents],
         nodesByDocument: { ...state.nodesByDocument, [document.id]: nodes },
         documentFiles: { ...state.documentFiles, [document.id]: file },
-        workItems: [...items, ...state.workItems],
+        workItems: state.workItems,
         workspaceId,
         corpusStatus: "ready",
         corpusError: null,
@@ -196,13 +202,19 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         activeRegionMatchScore: null,
         activeJob: job,
         job,
+        agentSteps: createInitialAgentSteps(job.job_id),
+        agentRuns: [],
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
         isSimulating: true,
         hasCompletedRun: false,
         backendAvailable: false,
         notice: `Uploaded ${document.filename} · Running local 7-agent verification.`,
       }));
-      void get().loadSummary(get().summaryParams, true);
-      void runLocalMultiAgentReview(set, get, [document], job);
+      void runLocalMultiAgentReview(set, get, [document], job, {
+        nodesByDocument: { [document.id]: nodes },
+        workItems: items,
+      });
     }
   },
 

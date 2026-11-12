@@ -8,6 +8,7 @@ import random
 import re
 import time
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 from typing import Any
@@ -120,49 +121,110 @@ async def _audit(
     return record
 
 
-async def _agent_transition(
-    session: AsyncSession,
-    sink: EventSink,
+async def _stage_delay_or_infer(
     agent: str,
     input_payload: Any,
     output_payload: Any,
-    *,
-    document_id: UUID | None = None,
-    action: str = "EXECUTE",
-    controller: JobController | None = None,
-    job_id: UUID | None = None,
-    agent_index: int = 0,
-    node_index: int = 0,
+    controller: JobController | None,
+    job_id: UUID | None,
 ) -> bool:
-    if controller is not None and job_id is not None:
-        if not await controller.before_step(job_id, agent_index, document_id, node_index, agent_label=agent):
-            return False
-    started = time.perf_counter()
-    input_hash = payload_hash(input_payload)
-    output_hash = payload_hash(output_payload)
-    await sink.publish(
-        {
-            "type": "agent_transition",
-            "agent_name": agent,
-            "status": "running",
-            "latency_ms": 0,
-            "input_hash": input_hash,
-            "output_hash": output_hash,
-            "document_id": str(document_id) if document_id else None,
-            "node_index": node_index,
-            "message": _agent_message(agent, output_payload),
-        }
-    )
     await asyncio.sleep(random.uniform(0.4, 0.6) if settings.inference_mode == "demo_simulator" else 0.0)
     if await _is_job_cancelled(controller, job_id):
-        await session.rollback()
         return False
     if settings.inference_mode != "demo_simulator":
         await InferenceRuntime().complete(agent, {"input": input_payload, "output_shape": output_payload})
     if await _is_job_cancelled(controller, job_id):
+        return False
+    return True
+
+
+async def _begin_stage(
+    session: AsyncSession,
+    sink: EventSink,
+    *,
+    agent: str,
+    agent_index: int,
+    input_payload: Any,
+    running_summary: str,
+    running_details: dict[str, Any],
+    document_id: UUID | None = None,
+    document_filename: str | None = None,
+    controller: JobController | None = None,
+    job_id: UUID | None = None,
+    batch_id: UUID | None = None,
+) -> tuple[bool, float, str, str]:
+    if controller is not None and job_id is not None:
+        if not await controller.before_step(job_id, agent_index, document_id, 0, agent_label=agent):
+            return False, 0.0, "", ""
+    started_perf = time.perf_counter()
+    started_at = datetime.now(UTC).isoformat()
+    in_hash = payload_hash(input_payload)
+    job_status = "RUNNING"
+    if controller is not None and job_id is not None:
+        state = await controller.get(job_id)
+        if state is not None:
+            job_status = state.status
+        await controller.start_step(
+            job_id,
+            agent_index,
+            started_at=started_at,
+            input_hash=in_hash,
+            document_id=document_id,
+            document_filename=document_filename,
+            summary=running_summary,
+            details=running_details,
+        )
+    run_id_str = str(job_id) if job_id else (str(batch_id) if batch_id else None)
+    await sink.publish(
+        {
+            "type": "agent_transition",
+            "job_id": str(job_id) if job_id else None,
+            "run_id": run_id_str,
+            "agent_name": agent,
+            "current_agent_index": agent_index,
+            "status": "running",
+            "job_status": job_status,
+            "started_at": started_at,
+            "completed_at": None,
+            "latency_ms": 0,
+            "input_hash": in_hash,
+            "output_hash": in_hash,
+            "document_id": str(document_id) if document_id else None,
+            "document_filename": document_filename,
+            "summary": running_summary,
+            "message": running_summary,
+            "details": dict(running_details),
+        }
+    )
+    return True, started_perf, started_at, in_hash
+
+
+async def _finish_stage(
+    session: AsyncSession,
+    sink: EventSink,
+    *,
+    agent: str,
+    agent_index: int,
+    started_perf: float,
+    started_at: str,
+    input_hash: str,
+    input_payload: Any,
+    output_payload: Any,
+    summary: str,
+    details: dict[str, Any],
+    action: str = "EXECUTE",
+    document_id: UUID | None = None,
+    document_filename: str | None = None,
+    controller: JobController | None = None,
+    job_id: UUID | None = None,
+    batch_id: UUID | None = None,
+) -> bool:
+    if await _is_job_cancelled(controller, job_id):
         await session.rollback()
         return False
-    elapsed = max(1, int((time.perf_counter() - started) * 1000))
+    elapsed = max(1, int((time.perf_counter() - started_perf) * 1000))
+    completed_at = datetime.now(UTC).isoformat()
+    out_hash = payload_hash(output_payload)
     await _audit(
         session,
         agent=agent,
@@ -175,22 +237,105 @@ async def _agent_transition(
     )
     # Release the SQLite write transaction before the controller mirrors its cursor.
     await session.commit()
+    job_status = "RUNNING"
+    if controller is not None and job_id is not None:
+        state = await controller.get(job_id)
+        if state is not None:
+            job_status = state.status
+        await controller.mark_step(
+            job_id,
+            agent_index,
+            output_payload,
+            started_at=started_at,
+            completed_at=completed_at,
+            latency_ms=elapsed,
+            input_hash=input_hash,
+            output_hash=out_hash,
+            document_id=document_id,
+            document_filename=document_filename,
+            summary=summary,
+            details=details,
+        )
+    run_id_str = str(job_id) if job_id else (str(batch_id) if batch_id else None)
     await sink.publish(
         {
             "type": "agent_transition",
+            "job_id": str(job_id) if job_id else None,
+            "run_id": run_id_str,
             "agent_name": agent,
+            "current_agent_index": agent_index,
             "status": "completed",
+            "job_status": job_status,
+            "started_at": started_at,
+            "completed_at": completed_at,
             "latency_ms": elapsed,
             "input_hash": input_hash,
-            "output_hash": output_hash,
+            "output_hash": out_hash,
             "document_id": str(document_id) if document_id else None,
-            "node_index": node_index,
-            "message": _agent_message(agent, output_payload),
+            "document_filename": document_filename,
+            "summary": summary,
+            "message": summary,
+            "details": dict(details),
         }
     )
-    if controller is not None and job_id is not None:
-        await controller.mark_step(job_id, agent_index, output_payload)
     return True
+
+
+async def _fail_stage(
+    session: AsyncSession,
+    sink: EventSink,
+    *,
+    agent: str,
+    agent_index: int,
+    started_perf: float,
+    started_at: str,
+    input_hash: str,
+    error: Exception,
+    details: dict[str, Any],
+    document_id: UUID | None = None,
+    document_filename: str | None = None,
+    controller: JobController | None = None,
+    job_id: UUID | None = None,
+    batch_id: UUID | None = None,
+) -> None:
+    await session.rollback()
+    elapsed = max(1, int((time.perf_counter() - started_perf) * 1000))
+    completed_at = datetime.now(UTC).isoformat()
+    fail_summary = f"{agent} failed: {error}"
+    fail_details = {**details, "error": str(error), "error_type": type(error).__name__}
+    out_hash = payload_hash({"error": str(error), "agent": agent})
+    if controller is not None and job_id is not None:
+        await controller.fail_step(
+            job_id,
+            agent_index,
+            completed_at=completed_at,
+            latency_ms=elapsed,
+            summary=fail_summary,
+            details=fail_details,
+            output_hash=out_hash,
+        )
+    run_id_str = str(job_id) if job_id else (str(batch_id) if batch_id else None)
+    await sink.publish(
+        {
+            "type": "agent_transition",
+            "job_id": str(job_id) if job_id else None,
+            "run_id": run_id_str,
+            "agent_name": agent,
+            "current_agent_index": agent_index,
+            "status": "failed",
+            "job_status": "FAILED",
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "latency_ms": elapsed,
+            "input_hash": input_hash,
+            "output_hash": out_hash,
+            "document_id": str(document_id) if document_id else None,
+            "document_filename": document_filename,
+            "summary": fail_summary,
+            "message": fail_summary,
+            "details": fail_details,
+        }
+    )
 
 
 async def persist_ingestion(
@@ -632,6 +777,240 @@ async def _emit_chronos_temporal_conflicts(
     return emitted
 
 
+def _plan_document_finding(
+    source_node: ASTNode,
+    document: Document | None,
+    *,
+    index: int,
+    pdf_page_cache: dict[tuple[str, int], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    quote = source_node.verbatim_text
+    region_passed, region_match_score = verify_node_region(
+        source_node,
+        document,
+        quote,
+        pdf_page_cache=pdf_page_cache,
+    )
+    fact = ExtractedFact(
+        fact_type="SOURCE_EXCERPT",
+        value=quote[:120],
+        verbatim_quote=quote,
+        ast_node_id=str(source_node.id),
+        confidence=0.98 if source_node.ocr_confidence >= 0.90 else 0.72,
+        locator=dict(source_node.locator) if source_node.locator else None,
+        region_match_score=region_match_score,
+    )
+    gate_quote = "[unreadable source region]" if source_node.ocr_confidence < 0.90 else quote
+    gate = run_verification_gate(
+        [gate_quote],
+        [quote],
+        min_quote_words=_min_words_for_node(source_node, gate_quote),
+    )
+    passed = gate.passed and region_passed
+    is_weak = (not passed) and region_passed and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
+    score = _risk_score(quote, source_node.ocr_confidence)
+    if passed:
+        status = VerificationStatus.VERIFIED
+        tier = _tier_for_score(score)
+        priority_score = score
+        fluent_output = f"Verified source excerpt from {document.filename if document else 'uploaded file'}."
+        citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
+        weak_evidence = False
+        weak_reason: str | None = None
+        evidence_quality = "strong"
+    elif is_weak:
+        status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        tier = PriorityTier.P1_HIGH
+        priority_score = max(score, 75)
+        fluent_output = gate.fluent_output or "Weak evidence flagged for human verification."
+        citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
+        weak_evidence = True
+        weak_reason = gate.weak_evidence_reason
+        evidence_quality = "weak"
+    else:
+        status = VerificationStatus.INSUFFICIENT_EVIDENCE
+        tier = PriorityTier.P0_CRITICAL
+        priority_score = 100
+        fluent_output = INSUFFICIENT_EVIDENCE_OUTPUT
+        citations = []
+        weak_evidence = False
+        weak_reason = None
+        evidence_quality = "missing"
+
+    return {
+        "node_index": index - 1,
+        "source_node": source_node,
+        "quote": quote,
+        "gate_quote": gate_quote,
+        "fact": fact,
+        "gate": gate,
+        "passed": passed,
+        "region_match_score": region_match_score,
+        "status": status,
+        "tier": tier,
+        "priority_score": priority_score,
+        "category": _category_for_question(quote),
+        "prompt_or_question": source_node.section_path or f"Source item {index}",
+        "fluent_output": fluent_output,
+        "citations": citations,
+        "weak_evidence": weak_evidence,
+        "weak_reason": weak_reason,
+        "evidence_quality": evidence_quality,
+        "gate_telemetry": {
+            "citation_match": gate.best_citation_score,
+            "region_match_score": region_match_score,
+            "critical_logprob": gate.best_logprob,
+            "failed_citations": gate.failed_citations,
+            "failed_logprobs": gate.failed_logprobs,
+            "weak_evidence": weak_evidence,
+            "weak_evidence_reason": weak_reason,
+        },
+    }
+
+
+def _plan_questionnaire_finding(
+    question_node: ASTNode,
+    source_nodes: list[ASTNode],
+    source_documents: dict[UUID, Document],
+    source_texts: list[str],
+    *,
+    index: int,
+    latest_filenames: list[str],
+    legacy_filenames: list[str],
+    pdf_page_cache: dict[tuple[str, int], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    question = str((question_node.structured_payload or {}).get("row_data", {}).get("Question", question_node.verbatim_text))
+    is_unanswerable = "unanswerable" in question.lower()
+    fact_node = None if is_unanswerable else _fact_node(question, source_nodes, doc_by_id=source_documents)
+    fact_doc = source_documents.get(fact_node.document_id) if fact_node is not None else None
+    facts: list[ExtractedFact] = []
+    region_passed = False
+    region_match_score = 0.0
+
+    if fact_node is not None:
+        fact_type = "CLAUSE"
+        if "date" in question.lower() or "when" in question.lower():
+            fact_type = "DATE"
+        region_passed, region_match_score = verify_node_region(
+            fact_node,
+            fact_doc,
+            fact_node.verbatim_text,
+            pdf_page_cache=pdf_page_cache,
+        )
+        facts = [
+            ExtractedFact(
+                fact_type=fact_type,
+                value=fact_node.verbatim_text[:90],
+                verbatim_quote=fact_node.verbatim_text,
+                ast_node_id=str(fact_node.id),
+                confidence=0.98 if fact_node.ocr_confidence >= 0.90 else 0.72,
+                locator=dict(fact_node.locator) if fact_node.locator else None,
+                region_match_score=region_match_score,
+            )
+        ]
+
+    if fact_node is None or is_unanswerable:
+        quotes: list[str] = []
+        region_passed = False
+        region_match_score = 0.0
+    elif fact_node.ocr_confidence < 0.90:
+        quotes = ["[unreadable source region]"]
+        region_passed = False
+        region_match_score = 0.0
+    else:
+        quotes = [fact.verbatim_quote for fact in facts]
+
+    token_logprobs = [{"token": fact.value[:12], "entity_type": fact.fact_type, "probability": 0.96} for fact in facts]
+    gate = run_verification_gate(
+        quotes,
+        source_texts,
+        token_logprobs,
+        min_quote_words=_min_words_for_node(fact_node, quotes[0]) if quotes else None,
+    )
+    passed = gate.passed and region_passed and fact_node is not None and not is_unanswerable
+    is_weak = (
+        (not passed)
+        and fact_node is not None
+        and not is_unanswerable
+        and region_passed
+        and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
+    )
+
+    gate_payload = {
+        "citation_match": gate.best_citation_score,
+        "region_match_score": region_match_score,
+        "critical_logprob": gate.best_logprob,
+        "failed_citations": gate.failed_citations,
+        "failed_logprobs": gate.failed_logprobs,
+        "weak_evidence": is_weak,
+        "weak_evidence_reason": gate.weak_evidence_reason if is_weak else None,
+    }
+    fields = hard_gate_fields(gate)
+    if passed:
+        output = synthesize_verified_output(facts, gate)
+        status = VerificationStatus.VERIFIED
+        score = 92 if "wildcard" in question.lower() else 72 - index
+        tier = _tier_for_score(score)
+        resolved = ResolvedByTier.TIER1_CACHE if index == 1 else ResolvedByTier.TIER2_SLM_REGIMENT
+        weak_evidence = False
+        weak_reason = None
+        evidence_quality = "strong"
+        citations = [
+            _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
+            for fact in facts
+        ]
+    elif is_weak and fact_node is not None:
+        output = str(fields.get("fluent_output") or "Weak evidence flagged for human verification.")
+        status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        score = 80
+        tier = PriorityTier.P1_HIGH
+        resolved = ResolvedByTier.TIER2_SLM_REGIMENT
+        weak_evidence = True
+        weak_reason = gate.weak_evidence_reason
+        evidence_quality = "weak"
+        citations = [
+            _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
+            for fact in facts
+        ]
+    else:
+        output = INSUFFICIENT_EVIDENCE_OUTPUT
+        status = VerificationStatus.INSUFFICIENT_EVIDENCE
+        score = 100
+        tier = PriorityTier.P0_CRITICAL
+        resolved = ResolvedByTier.TIER3_ARBITER if "conflict" in question.lower() else ResolvedByTier.TIER2_SLM_REGIMENT
+        weak_evidence = False
+        weak_reason = None
+        evidence_quality = "missing"
+        citations = []
+
+    supersession_note: str | None = None
+    if latest_filenames and legacy_filenames and "password" in question.lower():
+        supersession_note = f"{', '.join(latest_filenames)} supersedes {', '.join(legacy_filenames)}"
+
+    return {
+        "node_index": index - 1,
+        "question": question,
+        "fact_node": fact_node,
+        "facts": facts,
+        "quotes": quotes,
+        "token_logprobs": token_logprobs,
+        "gate": gate,
+        "passed": passed,
+        "region_match_score": region_match_score,
+        "gate_payload": gate_payload,
+        "output": output,
+        "status": status,
+        "score": score,
+        "tier": tier,
+        "resolved": resolved,
+        "weak_evidence": weak_evidence,
+        "weak_reason": weak_reason,
+        "evidence_quality": evidence_quality,
+        "citations": citations,
+        "supersession_note": supersession_note,
+    }
+
+
 async def run_regiment(
     session: AsyncSession,
     workspace_id: UUID,
@@ -647,205 +1026,626 @@ async def run_regiment(
     for document in documents:
         result = await session.execute(select(ASTNode).where(ASTNode.document_id == document.id).order_by(ASTNode.node_order))
         all_nodes.extend(result.scalars().all())
-    low_confidence = rescue_regions(
-        [
-            ParsedNode(
-                node_type=node.node_type,
-                verbatim_text=node.verbatim_text,
-                page_number=node.page_number,
-                bounding_box=node.bounding_box,
-                ocr_confidence=node.ocr_confidence,
-                locator=node.locator,
-                node_order=node.node_order,
-            )
-            for node in all_nodes
-        ]
-    )
 
-    async def transition(
-        agent: str,
-        input_payload: Any,
-        output_payload: Any,
-        *,
-        document_id: UUID | None = None,
-        agent_index: int = 0,
-        node_index: int = 0,
-    ) -> bool:
-        return await _agent_transition(
+    single_doc = documents[0] if len(documents) == 1 else None
+    corpus_doc_id = single_doc.id if single_doc is not None else None
+    corpus_doc_filename = single_doc.filename if single_doc is not None else None
+    doc_filenames = [doc.filename for doc in documents]
+
+    # Stage 0: Scout
+    scout_in = {"documents": len(documents), "nodes": len(all_nodes)}
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Scout",
+        agent_index=0,
+        input_payload=scout_in,
+        running_summary=f"Scanning {len(documents)} document{'s' if len(documents) != 1 else ''} for low-confidence OCR regions",
+        running_details={"documents": doc_filenames, "nodes_inspected": len(all_nodes)},
+        document_id=corpus_doc_id,
+        document_filename=corpus_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
+        await session.commit()
+        return []
+    try:
+        low_confidence = rescue_regions(
+            [
+                ParsedNode(
+                    node_type=node.node_type,
+                    verbatim_text=node.verbatim_text,
+                    page_number=node.page_number,
+                    bounding_box=node.bounding_box,
+                    ocr_confidence=node.ocr_confidence,
+                    locator=node.locator,
+                    node_order=node.node_order,
+                )
+                for node in all_nodes
+            ]
+        )
+        pages_scanned = sum(doc.total_pages or 0 for doc in documents)
+        low_count = len(low_confidence)
+        if pages_scanned > 0:
+            scout_summary = (
+                f"{pages_scanned} page{'s' if pages_scanned != 1 else ''} scanned · "
+                f"{low_count} low-confidence region{'s' if low_count != 1 else ''} flagged"
+            )
+        else:
+            scout_summary = (
+                f"{len(documents)} source{'s' if len(documents) != 1 else ''} scanned · "
+                f"{low_count} low-confidence region{'s' if low_count != 1 else ''} flagged"
+            )
+        scout_details = {
+            "documents_scanned": len(documents),
+            "documents": doc_filenames,
+            "pages_scanned": pages_scanned,
+            "nodes_inspected": len(all_nodes),
+            "low_confidence_regions": low_count,
+            "rescued_regions": [
+                {
+                    "page_number": region.get("page_number"),
+                    "ocr_confidence": region.get("ocr_confidence"),
+                    "excerpt": (region.get("verbatim_text") or "")[:80],
+                }
+                for region in low_confidence[:10]
+            ],
+        }
+        scout_out = {"rescued": low_count, "pages_scanned": pages_scanned}
+        if not await _stage_delay_or_infer("Scout", scout_in, scout_out, controller, job_id):
+            await session.rollback()
+            return []
+        if not await _finish_stage(
             session,
             sink,
-            agent,
-            input_payload,
-            output_payload,
-            document_id=document_id,
+            agent="Scout",
+            agent_index=0,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=scout_in,
+            output_payload=scout_out,
+            summary=scout_summary,
+            details=scout_details,
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
             controller=controller,
             job_id=job_id,
-            agent_index=agent_index,
-            node_index=node_index,
+            batch_id=batch_id,
+        ):
+            return []
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Scout",
+            agent_index=0,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"documents": doc_filenames, "nodes_inspected": len(all_nodes)},
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
         )
+        raise
 
-    if not await transition("Scout", {"low_confidence": len(low_confidence)}, {"rescued": len(low_confidence)}, agent_index=0):
+    # Stage 1: Quartermaster
+    qm_in = {"nodes": len(all_nodes), "documents": len(documents)}
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Quartermaster",
+        agent_index=1,
+        input_payload=qm_in,
+        running_summary=f"Tagging {len(all_nodes)} AST node{'s' if len(all_nodes) != 1 else ''} across {len(documents)} document{'s' if len(documents) != 1 else ''}",
+        running_details={"documents": doc_filenames, "nodes_total": len(all_nodes)},
+        document_id=corpus_doc_id,
+        document_filename=corpus_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
         await session.commit()
         return []
-    taxonomy = categorize_nodes(all_nodes)
-    for document in documents:
-        document_nodes = [node for node in all_nodes if node.document_id == document.id]
-        document_text = " ".join(node.verbatim_text.lower() for node in document_nodes[:40])
-        if document.source_format == SourceFormat.XLSX:
-            document.category = "Questionnaire"
-        elif str(getattr(document.source_format, "value", document.source_format)) == "JSON_CONFIG":
-            document.category = "Cloud Config"
-        elif any(term in document_text for term in ("agreement", "liability", "indemnification", "contract")):
-            document.category = "Commercial Contract"
-        else:
-            document.category = "Security Audit"
-        document.sub_category = str(taxonomy.get("categories", {}))
-    if not await transition("Quartermaster", {"nodes": len(all_nodes)}, taxonomy, agent_index=1):
+    try:
+        taxonomy = categorize_nodes(all_nodes)
+        for document in documents:
+            document_nodes = [node for node in all_nodes if node.document_id == document.id]
+            document_text = " ".join(node.verbatim_text.lower() for node in document_nodes[:40])
+            if document.source_format == SourceFormat.XLSX:
+                document.category = "Questionnaire"
+            elif str(getattr(document.source_format, "value", document.source_format)) == "JSON_CONFIG":
+                document.category = "Cloud Config"
+            elif any(term in document_text for term in ("agreement", "liability", "indemnification", "contract")):
+                document.category = "Commercial Contract"
+            else:
+                document.category = "Security Audit"
+            document.sub_category = str(taxonomy.get("categories", {}))
+        tagged_count = int(taxonomy.get("tagged_nodes", len(all_nodes)))
+        qm_summary = (
+            f"{tagged_count} node{'s' if tagged_count != 1 else ''} tagged across "
+            f"{len(documents)} document{'s' if len(documents) != 1 else ''}"
+        )
+        qm_details = {
+            "tagged_nodes": tagged_count,
+            "document_count": len(documents),
+            "documents": doc_filenames,
+            "categories": dict(taxonomy.get("categories", {})),
+            "document_categories": {doc.filename: doc.category for doc in documents},
+        }
+        if not await _stage_delay_or_infer("Quartermaster", qm_in, taxonomy, controller, job_id):
+            await session.rollback()
+            return []
+        if not await _finish_stage(
+            session,
+            sink,
+            agent="Quartermaster",
+            agent_index=1,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=qm_in,
+            output_payload=taxonomy,
+            summary=qm_summary,
+            details=qm_details,
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        ):
+            return []
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Quartermaster",
+            agent_index=1,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"documents": doc_filenames, "nodes_total": len(all_nodes)},
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
+
+    # Stage 2: Chronos
+    chronos_in = {"documents": len(documents)}
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Chronos",
+        agent_index=2,
+        input_payload=chronos_in,
+        running_summary=f"Sequencing {len(documents)} document{'s' if len(documents) != 1 else ''} and checking supersession signals",
+        running_details={"documents": doc_filenames},
+        document_id=corpus_doc_id,
+        document_filename=corpus_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
         await session.commit()
         return []
-    temporal = analyze_versions(documents)
-    if not await transition("Chronos", {"documents": len(documents)}, temporal, agent_index=2):
-        await session.commit()
-        return []
-    risk = score_nodes(all_nodes)
-    if not await transition("Vanguard", {"nodes": len(all_nodes)}, risk, agent_index=3):
-        await session.commit()
-        return []
+    try:
+        temporal = analyze_versions(documents)
+        superseded_count = int(temporal.get("superseded_count") or 0)
+        chronos_summary = (
+            f"{len(documents)} doc{'s' if len(documents) != 1 else ''} sequenced · "
+            f"{superseded_count} supersession conflict{'s' if superseded_count != 1 else ''}"
+        )
+        chronos_details = {
+            "document_count": len(documents),
+            "documents": doc_filenames,
+            "latest_filename": temporal.get("latest_filename"),
+            "latest_document_id": temporal.get("latest_document_id"),
+            "superseded_count": superseded_count,
+            "superseded_document_ids": list(temporal.get("superseded_document_ids", [])),
+        }
+        if not await _stage_delay_or_infer("Chronos", chronos_in, temporal, controller, job_id):
+            await session.rollback()
+            return []
+        if not await _finish_stage(
+            session,
+            sink,
+            agent="Chronos",
+            agent_index=2,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=chronos_in,
+            output_payload=temporal,
+            summary=chronos_summary,
+            details=chronos_details,
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        ):
+            return []
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Chronos",
+            agent_index=2,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"documents": doc_filenames},
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
 
     pdf_page_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
-    conflict = resolve_conflicts(documents)
     questionnaire = next((doc for doc in documents if doc.source_format == SourceFormat.XLSX), None)
 
-    if questionnaire is None:
-        if not await transition("Ranger", {"nodes": len(all_nodes)}, {"facts": len(all_nodes)}, agent_index=4):
-            await session.commit()
+    # Stage 3: Vanguard
+    vanguard_in = {"nodes": len(all_nodes)}
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Vanguard",
+        agent_index=3,
+        input_payload=vanguard_in,
+        running_summary=f"Scoring {len(all_nodes)} node{'s' if len(all_nodes) != 1 else ''} for critical (P0) and high (P1) risks",
+        running_details={"nodes_total": len(all_nodes), "documents": doc_filenames},
+        document_id=corpus_doc_id,
+        document_filename=corpus_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
+        await session.commit()
+        return []
+    try:
+        risk = score_nodes(all_nodes)
+        has_temporal_conflict = any(not doc.is_latest_version for doc in documents) and any(
+            doc.is_latest_version for doc in documents
+        )
+        planned_temporal_pairs = (
+            select_temporal_conflict_pairs(documents, all_nodes) if has_temporal_conflict else []
+        )
+        if questionnaire is None:
+            doc_by_id = {doc.id: doc for doc in documents}
+            planned_items = [
+                _plan_document_finding(
+                    source_node,
+                    doc_by_id.get(source_node.document_id),
+                    index=idx,
+                    pdf_page_cache=pdf_page_cache,
+                )
+                for idx, source_node in enumerate(all_nodes[:250], start=1)
+            ]
+        else:
+            question_nodes = [node for node in all_nodes if node.document_id == questionnaire.id]
+            source_nodes = [node for node in all_nodes if node.document_id != questionnaire.id]
+            source_documents = {document.id: document for document in documents}
+            source_texts = [node.verbatim_text for node in source_nodes]
+            latest_filenames = [doc.filename for doc in documents if doc.is_latest_version]
+            legacy_filenames = [doc.filename for doc in documents if not doc.is_latest_version]
+            planned_items = [
+                _plan_questionnaire_finding(
+                    q_node,
+                    source_nodes,
+                    source_documents,
+                    source_texts,
+                    index=idx,
+                    latest_filenames=latest_filenames,
+                    legacy_filenames=legacy_filenames,
+                    pdf_page_cache=pdf_page_cache,
+                )
+                for idx, q_node in enumerate(question_nodes, start=1)
+            ]
+
+        p0_count = sum(1 for item in planned_items if item["tier"] == PriorityTier.P0_CRITICAL)
+        p1_count = sum(1 for item in planned_items if item["tier"] == PriorityTier.P1_HIGH) + len(
+            planned_temporal_pairs
+        )
+        p2_count = sum(1 for item in planned_items if item["tier"] == PriorityTier.P2_MEDIUM)
+        p3_count = sum(1 for item in planned_items if item["tier"] == PriorityTier.P3_LOW)
+        total_planned_items = len(planned_items) + len(planned_temporal_pairs)
+        vanguard_summary = (
+            f"Scored {len(all_nodes)} node{'s' if len(all_nodes) != 1 else ''} · "
+            f"{p0_count} critical (P0) · {p1_count} high (P1)"
+        )
+        vanguard_details = {
+            "nodes_scored": len(all_nodes),
+            "planned_work_items": total_planned_items,
+            "p0_count": p0_count,
+            "p1_count": p1_count,
+            "p2_count": p2_count,
+            "p3_count": p3_count,
+            "max_score": risk.get("max_score", 0),
+            "node_critical_count": risk.get("critical_count", 0),
+        }
+        vanguard_out = {**risk, "p0_count": p0_count, "p1_count": p1_count, "planned_work_items": total_planned_items}
+        if not await _stage_delay_or_infer("Vanguard", vanguard_in, vanguard_out, controller, job_id):
+            await session.rollback()
             return []
-        if not await transition(
-            "Arbiter",
-            {"temporal_candidates": len(documents)},
-            conflict,
-            agent_index=5,
+        if not await _finish_stage(
+            session,
+            sink,
+            agent="Vanguard",
+            agent_index=3,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=vanguard_in,
+            output_payload=vanguard_out,
+            summary=vanguard_summary,
+            details=vanguard_details,
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
         ):
-            await session.commit()
             return []
-        generic_items: list[WorkItem] = []
-        for index, source_node in enumerate(all_nodes[:250], start=1):
-            if controller is not None and job_id is not None and not await controller.before_step(
-                job_id, 4, source_node.document_id, index, agent_label="Ranger"
-            ):
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Vanguard",
+            agent_index=3,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"nodes_total": len(all_nodes)},
+            document_id=corpus_doc_id,
+            document_filename=corpus_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
+
+    # Stage 4: Ranger (persists findings and emits progressive `work_item` WS events)
+    ranger_doc_id = questionnaire.id if questionnaire is not None else corpus_doc_id
+    ranger_doc_filename = questionnaire.filename if questionnaire is not None else corpus_doc_filename
+    ranger_in = (
+        {"questions": len(planned_items), "document_id": str(questionnaire.id)}
+        if questionnaire is not None
+        else {"nodes": len(planned_items)}
+    )
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Ranger",
+        agent_index=4,
+        input_payload=ranger_in,
+        running_summary=f"Extracting verbatim facts across {len(planned_items)} item{'s' if len(planned_items) != 1 else ''} (>=97% gate)",
+        running_details={"items_to_extract": len(planned_items), "mode": "questionnaire_rows" if questionnaire else "document_findings"},
+        document_id=ranger_doc_id,
+        document_filename=ranger_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
+        await session.commit()
+        return []
+
+    work_items: list[WorkItem] = []
+    verified_facts: list[ExtractedFact] = []
+    try:
+        if questionnaire is None:
+            for plan in planned_items:
+                source_node = plan["source_node"]
+                node_idx = int(plan["node_index"])
+                if controller is not None and job_id is not None and not await controller.before_step(
+                    job_id, 4, source_node.document_id, node_idx, agent_label="Ranger"
+                ):
+                    await session.commit()
+                    return work_items
+                item = WorkItem(
+                    workspace_id=workspace_id,
+                    batch_id=batch_id,
+                    document_id=source_node.document_id,
+                    item_type="DOCUMENT_FINDING",
+                    category=plan["category"],
+                    priority_tier=plan["tier"],
+                    priority_score=plan["priority_score"],
+                    original_priority_tier=plan["tier"].value,
+                    prompt_or_question=plan["prompt_or_question"],
+                    fluent_output=plan["fluent_output"],
+                    structured_facts=[plan["fact"].model_dump()],
+                    verified_citations=plan["citations"],
+                    verification_status=plan["status"],
+                    resolved_by_tier=ResolvedByTier.TIER2_SLM_REGIMENT,
+                    weak_evidence=plan["weak_evidence"],
+                    weak_evidence_reason=plan["weak_reason"],
+                    evidence_quality=plan["evidence_quality"],
+                    gate_telemetry=plan["gate_telemetry"],
+                )
+                session.add(item)
+                await session.flush()
+                work_items.append(item)
+                if plan["passed"]:
+                    verified_facts.append(plan["fact"])
+                await _audit(
+                    session,
+                    agent="Citation Gate",
+                    action="VERIFY",
+                    input_payload={"quote": plan["gate_quote"], "source": plan["quote"], "locator": source_node.locator},
+                    output_payload=item.gate_telemetry,
+                    document_id=source_node.document_id,
+                    work_item_id=item.id,
+                    processing_ms=1,
+                )
                 await session.commit()
-                return generic_items
-            document = next((candidate for candidate in documents if candidate.id == source_node.document_id), None)
-            quote = source_node.verbatim_text
-            region_passed, region_match_score = verify_node_region(
-                source_node,
-                document,
-                quote,
-                pdf_page_cache=pdf_page_cache,
-            )
-            fact = ExtractedFact(
-                fact_type="SOURCE_EXCERPT",
-                value=quote[:120],
-                verbatim_quote=quote,
-                ast_node_id=str(source_node.id),
-                confidence=0.98 if source_node.ocr_confidence >= 0.90 else 0.72,
-                locator=dict(source_node.locator) if source_node.locator else None,
-                region_match_score=region_match_score,
-            )
-            # Low-confidence or stamped regions must remain human-visible even
-            # though the text fallback can technically reproduce the quote.
-            gate_quote = "[unreadable source region]" if source_node.ocr_confidence < 0.90 else quote
-            gate = run_verification_gate(
-                [gate_quote],
-                [quote],
-                min_quote_words=_min_words_for_node(source_node, gate_quote),
-            )
-            passed = gate.passed and region_passed
-            is_weak = (not passed) and region_passed and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
-            score = _risk_score(quote, source_node.ocr_confidence)
-            if passed:
-                status = VerificationStatus.VERIFIED
-                tier = _tier_for_score(score)
-                priority_score = score
-                fluent_output = f"Verified source excerpt from {document.filename if document else 'uploaded file'}."
-                citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
-                weak_evidence = False
-                weak_reason: str | None = None
-                evidence_quality = "strong"
-            elif is_weak:
-                status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
-                tier = PriorityTier.P1_HIGH
-                priority_score = max(score, 75)
-                fluent_output = gate.fluent_output or "Weak evidence flagged for human verification."
-                citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
-                weak_evidence = True
-                weak_reason = gate.weak_evidence_reason
-                evidence_quality = "weak"
-            else:
-                status = VerificationStatus.INSUFFICIENT_EVIDENCE
-                tier = PriorityTier.P0_CRITICAL
-                priority_score = 100
-                fluent_output = INSUFFICIENT_EVIDENCE_OUTPUT
-                citations = []
-                weak_evidence = False
-                weak_reason = None
-                evidence_quality = "missing"
+                await sink.publish(
+                    {
+                        "type": "gate_check",
+                        "passed": plan["passed"],
+                        "match_score": plan["gate"].best_citation_score,
+                        "region_match_score": plan["region_match_score"],
+                        "logprob": plan["gate"].best_logprob,
+                        "input_hash": payload_hash([plan["gate_quote"]]),
+                        "output_hash": payload_hash(item.gate_telemetry),
+                    }
+                )
+                await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
+        else:
+            for plan in planned_items:
+                node_idx = int(plan["node_index"])
+                if controller is not None and job_id is not None and not await controller.before_step(
+                    job_id, 4, questionnaire.id, node_idx, agent_label="Ranger"
+                ):
+                    await session.commit()
+                    return work_items
+                fact_node = plan["fact_node"]
+                facts = plan["facts"]
+                if plan["passed"]:
+                    verified_facts.extend(facts)
+                work_item = WorkItem(
+                    workspace_id=workspace_id,
+                    batch_id=batch_id,
+                    document_id=questionnaire.id,
+                    item_type="QUESTIONNAIRE_ROW",
+                    category=_category_for_question(plan["question"]),
+                    priority_tier=plan["tier"],
+                    priority_score=plan["score"],
+                    original_priority_tier=plan["tier"].value,
+                    prompt_or_question=plan["question"],
+                    fluent_output=plan["output"],
+                    structured_facts=[fact.model_dump() for fact in facts],
+                    verified_citations=plan["citations"],
+                    verification_status=plan["status"],
+                    resolved_by_tier=plan["resolved"],
+                    weak_evidence=plan["weak_evidence"],
+                    weak_evidence_reason=plan["weak_reason"],
+                    evidence_quality=plan["evidence_quality"],
+                    gate_telemetry=plan["gate_payload"] | {"supersession": plan["supersession_note"]},
+                )
+                session.add(work_item)
+                await session.flush()
+                work_items.append(work_item)
+                await _audit(
+                    session,
+                    agent="Citation Gate",
+                    action="VERIFY",
+                    input_payload={
+                        "quotes": plan["quotes"],
+                        "tokens": plan["token_logprobs"],
+                        "locator": fact_node.locator if fact_node else None,
+                    },
+                    output_payload=plan["gate_payload"],
+                    document_id=questionnaire.id,
+                    work_item_id=work_item.id,
+                    processing_ms=1,
+                )
+                await session.commit()
+                await sink.publish(
+                    {
+                        "type": "gate_check",
+                        "passed": plan["passed"],
+                        "match_score": plan["gate"].best_citation_score,
+                        "region_match_score": plan["region_match_score"],
+                        "logprob": plan["gate"].best_logprob,
+                        "input_hash": payload_hash({"quotes": plan["quotes"], "tokens": plan["token_logprobs"]}),
+                        "output_hash": payload_hash(plan["gate_payload"]),
+                    }
+                )
+                await sink.publish({"type": "work_item", "id": str(work_item.id), "status": work_item.verification_status.value})
 
-            item = WorkItem(
-                workspace_id=workspace_id,
-                batch_id=batch_id,
-                document_id=source_node.document_id,
-                item_type="DOCUMENT_FINDING",
-                category=_category_for_question(quote),
-                priority_tier=tier,
-                priority_score=priority_score,
-                original_priority_tier=tier.value,
-                prompt_or_question=source_node.section_path or f"Source item {index}",
-                fluent_output=fluent_output,
-                structured_facts=[fact.model_dump()],
-                verified_citations=citations,
-                verification_status=status,
-                resolved_by_tier=ResolvedByTier.TIER2_SLM_REGIMENT,
-                weak_evidence=weak_evidence,
-                weak_evidence_reason=weak_reason,
-                evidence_quality=evidence_quality,
-                gate_telemetry={
-                    "citation_match": gate.best_citation_score,
-                    "region_match_score": region_match_score,
-                    "critical_logprob": gate.best_logprob,
-                    "failed_citations": gate.failed_citations,
-                    "failed_logprobs": gate.failed_logprobs,
-                    "weak_evidence": weak_evidence,
-                    "weak_evidence_reason": weak_reason,
-                },
-            )
-            session.add(item)
-            await session.flush()
-            generic_items.append(item)
-            await _audit(
-                session,
-                agent="Citation Gate",
-                action="VERIFY",
-                input_payload={"quote": gate_quote, "source": quote, "locator": source_node.locator},
-                output_payload=item.gate_telemetry,
-                document_id=source_node.document_id,
-                work_item_id=item.id,
-                processing_ms=1,
-            )
-            await sink.publish(
-                {
-                    "type": "gate_check",
-                    "passed": passed,
-                    "match_score": gate.best_citation_score,
-                    "region_match_score": region_match_score,
-                    "logprob": gate.best_logprob,
-                    "input_hash": payload_hash([gate_quote]),
-                    "output_hash": payload_hash(item.gate_telemetry),
-                }
-            )
-            await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
-            await session.commit()
+        verified_count = sum(1 for item in work_items if item.verification_status == VerificationStatus.VERIFIED)
+        extracted_count = len(work_items)
+        ranger_summary = (
+            f"{extracted_count} finding{'s' if extracted_count != 1 else ''} extracted · "
+            f"{verified_count} verified >=97%"
+        )
+        ranger_details = {
+            "findings_extracted": extracted_count,
+            "verified_count": verified_count,
+            "needs_review_count": extracted_count - verified_count,
+            "mode": "questionnaire_rows" if questionnaire is not None else "document_findings",
+        }
+        ranger_out = {"findings_extracted": extracted_count, "verified_count": verified_count}
+        if not await _stage_delay_or_infer("Ranger", ranger_in, ranger_out, controller, job_id):
+            await session.rollback()
+            return work_items
+        if not await _finish_stage(
+            session,
+            sink,
+            agent="Ranger",
+            agent_index=4,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=ranger_in,
+            output_payload=ranger_out,
+            summary=ranger_summary,
+            details=ranger_details,
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        ):
+            return work_items
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Ranger",
+            agent_index=4,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"findings_persisted": len(work_items)},
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
 
+    # Stage 5: Arbiter (resolves temporal/cross-doc contradictions and emits `TEMPORAL_CONFLICT` items)
+    arbiter_in = {"temporal_candidates": len(documents)}
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Arbiter",
+        agent_index=5,
+        input_payload=arbiter_in,
+        running_summary=f"Resolving cross-document and temporal contradictions across {len(documents)} source{'s' if len(documents) != 1 else ''}",
+        running_details={"documents": doc_filenames},
+        document_id=ranger_doc_id,
+        document_filename=ranger_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
+        await session.commit()
+        return work_items
+
+    try:
+        conflict = resolve_conflicts(documents)
         temporal_items = await _emit_chronos_temporal_conflicts(
             session,
             sink,
@@ -858,11 +1658,113 @@ async def run_regiment(
             controller=controller,
             job_id=job_id,
         )
-        generic_items.extend(temporal_items)
-
+        work_items.extend(temporal_items)
         if await _is_job_cancelled(controller, job_id):
-            return generic_items
+            return work_items
 
+        latest_docs = list(conflict.get("latest_documents", []))
+        legacy_docs = list(conflict.get("superseded_documents", []))
+        if temporal_items:
+            first_tc = temporal_items[0].temporal_conflict or {}
+            newer_label = first_tc.get("newer_filename") or (latest_docs[0] if latest_docs else "latest")
+            older_label = first_tc.get("older_filename") or (legacy_docs[0] if legacy_docs else "legacy")
+            contradictions_count = len(temporal_items)
+            arbiter_summary = (
+                f"{contradictions_count} temporal contradiction{'s' if contradictions_count != 1 else ''} "
+                f"resolved ({newer_label} supersedes {older_label})"
+            )
+        elif conflict.get("resolved") and legacy_docs:
+            newer_label = latest_docs[0] if latest_docs else "latest"
+            older_label = legacy_docs[0]
+            contradictions_count = len(legacy_docs)
+            arbiter_summary = (
+                f"{contradictions_count} temporal contradiction{'s' if contradictions_count != 1 else ''} "
+                f"resolved ({newer_label} supersedes {older_label})"
+            )
+        else:
+            contradictions_count = 0
+            arbiter_summary = "0 temporal contradictions detected · corpus consistent"
+
+        arbiter_details = {
+            "resolved": bool(conflict.get("resolved")),
+            "contradictions_resolved": contradictions_count,
+            "latest_documents": latest_docs,
+            "superseded_documents": legacy_docs,
+            "resolutions": [
+                item.temporal_conflict.get("resolution")
+                for item in temporal_items
+                if item.temporal_conflict
+            ],
+        }
+        if not await _stage_delay_or_infer("Arbiter", arbiter_in, conflict, controller, job_id):
+            await session.rollback()
+            return work_items
+        if not await _finish_stage(
+            session,
+            sink,
+            agent="Arbiter",
+            agent_index=5,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=arbiter_in,
+            output_payload=conflict,
+            summary=arbiter_summary,
+            details=arbiter_details,
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        ):
+            return work_items
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Arbiter",
+            agent_index=5,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"documents": doc_filenames},
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
+
+    if await _is_job_cancelled(controller, job_id):
+        return work_items
+
+    # Stage 6: Envoy
+    envoy_in = (
+        {"verified_facts": [fact.model_dump() for fact in verified_facts], "total_work_items": len(work_items)}
+        if questionnaire is not None
+        else {"verified_facts": sum(1 for item in work_items if item.verification_status == VerificationStatus.VERIFIED), "total_work_items": len(work_items)}
+    )
+    ok, s_perf, s_at, s_hash = await _begin_stage(
+        session,
+        sink,
+        agent="Envoy",
+        agent_index=6,
+        input_payload=envoy_in,
+        running_summary=f"Synthesizing executive briefing from {len(work_items)} work item{'s' if len(work_items) != 1 else ''}",
+        running_details={"total_work_items": len(work_items)},
+        document_id=ranger_doc_id,
+        document_filename=ranger_doc_filename,
+        controller=controller,
+        job_id=job_id,
+        batch_id=batch_id,
+    )
+    if not ok:
+        await session.commit()
+        return work_items
+
+    try:
         summary_record = await persist_executive_summary(
             session,
             arbiter_resolutions=conflict,
@@ -870,240 +1772,62 @@ async def run_regiment(
             mark_prior_stale=True,
         )
         await session.commit()
-        metrics = compute_work_item_metrics(generic_items)
-        await transition(
-            "Envoy",
-            {"verified_facts": metrics["machine_verified"]},
-            {"outputs": metrics["machine_verified"], "metrics": metrics, "summary_id": str(summary_record.id)},
-            agent_index=6,
-        )
-        await sink.publish(summary_ws_payload(summary_record))
-        return generic_items
-
-    question_nodes = [node for node in all_nodes if node.document_id == questionnaire.id]
-    source_nodes = [node for node in all_nodes if node.document_id != questionnaire.id]
-    source_documents = {document.id: document for document in documents}
-    source_texts = [node.verbatim_text for node in source_nodes]
-    if not await transition(
-        "Ranger",
-        {"questions": len(question_nodes)},
-        {"mode": "atomic_json_only"},
-        document_id=questionnaire.id,
-        agent_index=4,
-    ):
-        await session.commit()
-        return []
-    if not await transition(
-        "Arbiter",
-        {"temporal_candidates": len(documents)},
-        conflict,
-        document_id=questionnaire.id,
-        agent_index=5,
-    ):
-        await session.commit()
-        return []
-
-    work_items: list[WorkItem] = []
-    verified_facts: list[ExtractedFact] = []
-    for index, question_node in enumerate(question_nodes, start=1):
-        if controller is not None and job_id is not None and not await controller.before_step(
-            job_id, 4, questionnaire.id, index, agent_label="Ranger"
-        ):
-            await session.commit()
-            return work_items
-        question = str((question_node.structured_payload or {}).get("row_data", {}).get("Question", question_node.verbatim_text))
-        is_unanswerable = "unanswerable" in question.lower()
-        fact_node = None if is_unanswerable else _fact_node(question, source_nodes, doc_by_id=source_documents)
-        fact_doc = source_documents.get(fact_node.document_id) if fact_node is not None else None
-        facts: list[ExtractedFact] = []
-        region_passed = False
-        region_match_score = 0.0
-
-        if fact_node is not None:
-            fact_type = "CLAUSE"
-            if "date" in question.lower() or "when" in question.lower():
-                fact_type = "DATE"
-            region_passed, region_match_score = verify_node_region(
-                fact_node,
-                fact_doc,
-                fact_node.verbatim_text,
-                pdf_page_cache=pdf_page_cache,
-            )
-            facts = [
-                ExtractedFact(
-                    fact_type=fact_type,
-                    value=fact_node.verbatim_text[:90],
-                    verbatim_quote=fact_node.verbatim_text,
-                    ast_node_id=str(fact_node.id),
-                    confidence=0.98 if fact_node.ocr_confidence >= 0.90 else 0.72,
-                    locator=dict(fact_node.locator) if fact_node.locator else None,
-                    region_match_score=region_match_score,
-                )
-            ]
-
-        if fact_node is None or is_unanswerable:
-            quotes: list[str] = []
-            region_passed = False
-            region_match_score = 0.0
-        elif fact_node.ocr_confidence < 0.90:
-            quotes = ["[unreadable source region]"]
-            region_passed = False
-            region_match_score = 0.0
-        else:
-            quotes = [fact.verbatim_quote for fact in facts]
-
-        token_logprobs = [{"token": fact.value[:12], "entity_type": fact.fact_type, "probability": 0.96} for fact in facts]
-        gate = run_verification_gate(
-            quotes,
-            source_texts,
-            token_logprobs,
-            min_quote_words=_min_words_for_node(fact_node, quotes[0]) if quotes else None,
-        )
-        passed = gate.passed and region_passed and fact_node is not None and not is_unanswerable
-        is_weak = (
-            (not passed)
-            and fact_node is not None
-            and not is_unanswerable
-            and region_passed
-            and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
-        )
-
-        gate_payload = {
-            "citation_match": gate.best_citation_score,
-            "region_match_score": region_match_score,
-            "critical_logprob": gate.best_logprob,
-            "failed_citations": gate.failed_citations,
-            "failed_logprobs": gate.failed_logprobs,
-            "weak_evidence": is_weak,
-            "weak_evidence_reason": gate.weak_evidence_reason if is_weak else None,
+        metrics = compute_work_item_metrics(work_items)
+        defensibility = metrics.get("defensibility_score")
+        score_label = f"{defensibility}%" if defensibility is not None else "N/A"
+        envoy_summary = f"Executive synthesis generated · {score_label} defensibility"
+        envoy_details = {
+            "summary_id": str(summary_record.id),
+            "defensibility_score": defensibility,
+            "total_work_items": metrics["total"],
+            "verified_count": metrics["machine_verified"],
+            "unresolved_count": metrics["unresolved"],
+            "critical_open": metrics["critical_open"],
+            "high_open": metrics["high_open"],
         }
-        await _audit(
+        envoy_out = {"outputs": metrics["machine_verified"], "metrics": metrics, "summary_id": str(summary_record.id)}
+        if not await _stage_delay_or_infer("Envoy", envoy_in, envoy_out, controller, job_id):
+            await session.rollback()
+            return work_items
+        if not await _finish_stage(
             session,
-            agent="Citation Gate",
-            action="VERIFY",
-            input_payload={"quotes": quotes, "tokens": token_logprobs, "locator": fact_node.locator if fact_node else None},
-            output_payload=gate_payload,
-            document_id=questionnaire.id,
-            processing_ms=1,
-        )
-        await sink.publish(
-            {
-                "type": "gate_check",
-                "passed": passed,
-                "match_score": gate.best_citation_score,
-                "region_match_score": region_match_score,
-                "logprob": gate.best_logprob,
-                "input_hash": payload_hash({"quotes": quotes, "tokens": token_logprobs}),
-                "output_hash": payload_hash(gate_payload),
-            }
-        )
-        fields = hard_gate_fields(gate)
-        if passed:
-            verified_facts.extend(facts)
-            output = synthesize_verified_output(facts, gate)
-            status = VerificationStatus.VERIFIED
-            score = 92 if "wildcard" in question.lower() else 72 - index
-            tier = _tier_for_score(score)
-            resolved = ResolvedByTier.TIER1_CACHE if index == 1 else ResolvedByTier.TIER2_SLM_REGIMENT
-            weak_evidence = False
-            weak_reason = None
-            evidence_quality = "strong"
-            citations = [
-                _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
-                for fact in facts
-            ]
-        elif is_weak and fact_node is not None:
-            output = str(fields.get("fluent_output") or "Weak evidence flagged for human verification.")
-            status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
-            score = 80
-            tier = PriorityTier.P1_HIGH
-            resolved = ResolvedByTier.TIER2_SLM_REGIMENT
-            weak_evidence = True
-            weak_reason = gate.weak_evidence_reason
-            evidence_quality = "weak"
-            citations = [
-                _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
-                for fact in facts
-            ]
-        else:
-            output = INSUFFICIENT_EVIDENCE_OUTPUT
-            status = VerificationStatus.INSUFFICIENT_EVIDENCE
-            score = 100
-            tier = PriorityTier.P0_CRITICAL
-            resolved = ResolvedByTier.TIER3_ARBITER if "conflict" in question.lower() else ResolvedByTier.TIER2_SLM_REGIMENT
-            weak_evidence = False
-            weak_reason = None
-            evidence_quality = "missing"
-            citations = []
-
-        supersession_note: str | None = None
-        if conflict.get("resolved") and "password" in question.lower():
-            latest_list = ", ".join(conflict.get("latest_documents", []))
-            legacy_list = ", ".join(conflict.get("superseded_documents", []))
-            supersession_note = f"{latest_list} supersedes {legacy_list}"
-
-        work_item = WorkItem(
-            workspace_id=workspace_id,
+            sink,
+            agent="Envoy",
+            agent_index=6,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            input_payload=envoy_in,
+            output_payload=envoy_out,
+            summary=envoy_summary,
+            details=envoy_details,
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
             batch_id=batch_id,
-            document_id=questionnaire.id,
-            item_type="QUESTIONNAIRE_ROW",
-            category=_category_for_question(question),
-            priority_tier=tier,
-            priority_score=score,
-            original_priority_tier=tier.value,
-            prompt_or_question=question,
-            fluent_output=output,
-            structured_facts=[fact.model_dump() for fact in facts],
-            verified_citations=citations,
-            verification_status=status,
-            resolved_by_tier=resolved,
-            weak_evidence=weak_evidence,
-            weak_evidence_reason=weak_reason,
-            evidence_quality=evidence_quality,
-            gate_telemetry=gate_payload | {"supersession": supersession_note},
-        )
-        session.add(work_item)
-        await session.flush()
-        await session.commit()
-        work_items.append(work_item)
-
-    temporal_items = await _emit_chronos_temporal_conflicts(
-        session,
-        sink,
-        workspace_id=workspace_id,
-        batch_id=batch_id,
-        documents=documents,
-        all_nodes=all_nodes,
-        conflict=conflict,
-        pdf_page_cache=pdf_page_cache,
-        controller=controller,
-        job_id=job_id,
-    )
-    work_items.extend(temporal_items)
-
-    if await _is_job_cancelled(controller, job_id):
+        ):
+            return work_items
+        await sink.publish(summary_ws_payload(summary_record))
         return work_items
-
-    summary_record = await persist_executive_summary(
-        session,
-        arbiter_resolutions=conflict,
-        workspace_id=workspace_id,
-        mark_prior_stale=True,
-    )
-    await session.commit()
-
-    metrics = compute_work_item_metrics(work_items)
-    await transition(
-        "Envoy",
-        {"verified_facts": [fact.model_dump() for fact in verified_facts]},
-        {"outputs": metrics["machine_verified"], "metrics": metrics, "summary_id": str(summary_record.id)},
-        document_id=questionnaire.id,
-        agent_index=6,
-    )
-    await sink.publish(summary_ws_payload(summary_record))
-    for item in work_items:
-        await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
-    return work_items
+    except Exception as exc:
+        await _fail_stage(
+            session,
+            sink,
+            agent="Envoy",
+            agent_index=6,
+            started_perf=s_perf,
+            started_at=s_at,
+            input_hash=s_hash,
+            error=exc,
+            details={"total_work_items": len(work_items)},
+            document_id=ranger_doc_id,
+            document_filename=ranger_doc_filename,
+            controller=controller,
+            job_id=job_id,
+            batch_id=batch_id,
+        )
+        raise
 
 
 def _category_for_question(question: str) -> str:
@@ -1131,7 +1855,7 @@ def _risk_score(text: str, ocr_confidence: float = 1.0) -> int:
     return score
 
 
-def _agent_message(agent: str, output: Any) -> str:
+def _agent_message(agent: str, output: Any = None) -> str:
     labels = {
         "Scout": "Scanned low-confidence and stamped regions.",
         "Quartermaster": "Categorized the extracted source nodes.",
@@ -1141,7 +1865,7 @@ def _agent_message(agent: str, output: Any) -> str:
         "Arbiter": "Resolved conflicts and selected the current evidence.",
         "Envoy": "Wrote the executive-ready verified summary.",
     }
-    return f"{labels.get(agent, 'Processed source material')} ({output})."
+    return labels.get(agent, "Processed source material.")
 
 
 def _is_strong_candidate(node: ASTNode) -> bool:

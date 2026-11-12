@@ -4,7 +4,25 @@ import { useBertStore } from "../../store/useBertStore";
 
 export function WeTransferTopPill() {
   const navigate = useNavigate();
-  const { loadDemo, workspaceId } = useBertStore();
+  const { loadDemo, workspaceId, wsStatus, backendAvailable } = useBertStore();
+
+  const statusLabel =
+    wsStatus === "connected"
+      ? "7-Agent Live Stream"
+      : wsStatus === "connecting" || wsStatus === "reconnecting"
+        ? "WebSocket Connecting…"
+        : backendAvailable
+          ? "API Connected"
+          : "7-Agent Local Mode";
+
+  const dotTone =
+    wsStatus === "connected"
+      ? "bg-emerald-600"
+      : wsStatus === "connecting" || wsStatus === "reconnecting"
+        ? "bg-amber-500 animate-pulse"
+        : backendAvailable
+          ? "bg-blue-600"
+          : "bg-zinc-500";
 
   const handleScrollTo = (id: string) => {
     const el = document.getElementById(id);
@@ -57,11 +75,14 @@ export function WeTransferTopPill() {
       </nav>
 
       {/* Workspace Indicator Pill */}
-      <div className="flex items-center gap-2 rounded-full bg-white/95 backdrop-blur-md shadow-sm border border-zinc-200/90 px-3 py-1.5 text-xs text-zinc-800 font-medium shrink-0">
-        <div className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse shrink-0" />
+      <div
+        data-testid="top-pill-connection-status"
+        className="flex items-center gap-2 rounded-full bg-white/95 backdrop-blur-md shadow-sm border border-zinc-200/90 px-3 py-1.5 text-xs text-zinc-800 font-medium shrink-0"
+      >
+        <div className={`w-2 h-2 rounded-full shrink-0 ${dotTone}`} />
         <span className="font-semibold text-zinc-900">BERT Enterprise</span>
         <span className="hidden sm:inline text-zinc-600 font-normal">·</span>
-        <span className="hidden sm:inline text-zinc-600 text-[11px]">7-Agent Local Mode</span>
+        <span className="hidden sm:inline text-zinc-700 text-[11px]">{statusLabel}</span>
       </div>
     </div>
   );

@@ -41,7 +41,7 @@ export const uid = () =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 export const sleep = (ms: number) =>
-  new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
 
 let localPaused = false;
 let localResume: (() => void) | null = null;
@@ -894,53 +894,276 @@ export function generateLocalExecutiveSummary({
   };
 }
 
+export interface LocalReviewOptions {
+  nodesByDocument?: Record<string, ASTNode[]>;
+  workItems?: WorkItem[];
+  stepDelayMs?: number;
+}
+
 export async function runLocalMultiAgentReview(
   set: (updater: (state: any) => any) => void,
   get: () => any,
   documents: Document[],
-  job: JobExecution
+  job: JobExecution,
+  options?: LocalReviewOptions
 ): Promise<void> {
   const runId = ++localRun;
-  for (let index = 0; index < AGENTS.length; index += 1) {
-    if (runId !== localRun) return;
+  const telemetryRunId = job.job_id || `local-${runId}`;
+  const stepDelayMs = options?.stepDelayMs ?? 420;
+  const stagedNodesMap = options?.nodesByDocument;
+  const stagedItems = options?.workItems;
+  const effectiveNodesMap: Record<string, ASTNode[]> =
+    stagedNodesMap ?? (get().nodesByDocument ?? {});
+  const allNodesList = Object.values(effectiveNodesMap).flat();
+  const effectiveAllItems: WorkItem[] = stagedItems ?? (get().workItems ?? []);
+  const revealedItemIds = new Set<string>();
+
+  const waitIfPaused = async (): Promise<boolean> => {
+    if (runId !== localRun) return false;
     if (localPaused) {
       await new Promise<void>((resolve) => {
         localResume = resolve;
       });
-      if (runId !== localRun) return;
+      if (runId !== localRun) return false;
     }
-    const targetDoc = documents[index % documents.length];
-    if (!targetDoc) return;
+    return true;
+  };
+
+  const revealNodes = (docIds: string[]) => {
+    if (!stagedNodesMap) return;
+    set((s: any) => {
+      const nextNodes: Record<string, ASTNode[]> = { ...(s.nodesByDocument ?? {}) };
+      for (const dId of docIds) {
+        if (stagedNodesMap[dId]) {
+          nextNodes[dId] = stagedNodesMap[dId];
+        }
+      }
+      return { nodesByDocument: nextNodes };
+    });
+  };
+
+  const revealWorkItems = (itemsToAdd: WorkItem[], emitEvents = false) => {
+    if (!stagedItems) return;
+    const fresh = itemsToAdd.filter((w) => !revealedItemIds.has(w.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((w) => revealedItemIds.add(w.id));
+    set((s: any) => ({
+      workItems: [...(s.workItems ?? []), ...fresh],
+    }));
+    if (emitEvents) {
+      for (const item of fresh) {
+        get().appendEvent({
+          type: "work_item",
+          id: item.id,
+          status: item.verification_status,
+          job_id: job.job_id,
+          run_id: telemetryRunId,
+          document_id: item.document_id,
+        });
+      }
+    }
+  };
+
+  const totalPages = Math.max(
+    1,
+    documents.reduce((acc, d) => acc + (d.total_pages || 1), 0)
+  );
+  const lowConfNodes = allNodesList.filter((n) => n.ocr_confidence < 0.9);
+  const scanDoc =
+    documents.find(
+      (d) =>
+        d.source_format === "PHYSICAL_SCAN" ||
+        d.filename.toLowerCase().includes("scan")
+    ) ?? documents[0] ?? null;
+  const supersededDocs = documents.filter((d) => !d.is_latest_version);
+  const latestDocs = documents.filter((d) => d.is_latest_version);
+  const temporalItems = effectiveAllItems.filter(
+    (w) => w.item_type === "TEMPORAL_CONFLICT"
+  );
+  const p0Count = effectiveAllItems.filter((w) => w.priority_tier === "P0_CRITICAL").length;
+  const p1Count = effectiveAllItems.filter((w) => w.priority_tier === "P1_HIGH").length;
+  const totalMetrics = computeWorkItemMetrics(effectiveAllItems);
+
+  for (let index = 0; index < AGENTS.length; index += 1) {
+    if (!(await waitIfPaused())) return;
+    const agentName = AGENTS[index];
+    const role = AGENT_ROLES[index];
+
+    const stageDoc =
+      index === 0
+        ? scanDoc
+        : index === 4
+          ? documents.find((d) => d.source_format === "XLSX") ?? documents[0] ?? null
+          : null;
+
     const current: JobExecution = {
       ...job,
       status: "RUNNING",
       current_agent_index: index,
-      current_document_id: targetDoc.id,
-      current_node_index: Math.min(index * 2, 14),
+      current_document_id: stageDoc?.id ?? documents[0]?.id ?? null,
+      current_node_index: 0,
     };
     set(() => ({ activeJob: current, job: current, isSimulating: true }));
-    get().appendEvent({
-      type: "agent_transition",
-      agent_name: AGENTS[index],
-      status: "running",
-      document_id: targetDoc.id,
-      node_index: current.current_node_index,
-      message: `${AGENT_ROLES[index]} is actively analyzing ${targetDoc.filename} (AST node ${current.current_node_index + 1}).`,
-    });
-    await sleep(550);
+
+    const startedMs = Date.now();
+    const perfStart =
+      typeof globalThis.performance?.now === "function"
+        ? globalThis.performance.now()
+        : startedMs;
+
+    const stageRunningSummary = [
+      `Scanning ${totalPages} pages for low-confidence & stamped regions`,
+      `Categorizing ${allNodesList.length || documents.length} AST nodes across ${documents.length} documents`,
+      `Sequencing ${documents.length} documents & checking policy supersession`,
+      `Scoring ${allNodesList.length || effectiveAllItems.length} nodes for P0/P1 risk severity`,
+      `Extracting verbatim facts & running ≥97% rapidfuzz citation gate`,
+      `Resolving cross-document contradictions & temporal conflicts`,
+      `Synthesizing executive compliance briefing & defensibility score`,
+    ][index];
+
+    const inputHash = await checksum(
+      JSON.stringify({ runId: telemetryRunId, agentName, index, docs: documents.map((d) => d.id) })
+    );
     if (runId !== localRun) return;
+
     get().appendEvent({
       type: "agent_transition",
-      agent_name: AGENTS[index],
+      agent_name: agentName,
+      current_agent_index: index,
+      status: "running",
+      job_status: "RUNNING",
+      job_id: job.job_id,
+      run_id: telemetryRunId,
+      started_at: startedMs,
+      input_hash: inputHash,
+      document_id: stageDoc?.id ?? null,
+      document_filename: stageDoc?.filename ?? null,
+      summary: stageRunningSummary,
+      message: stageRunningSummary,
+      details: {
+        stage: agentName,
+        role,
+        documents_in_scope: documents.length,
+      },
+    });
+
+    if (stepDelayMs > 0) {
+      await sleep(stepDelayMs);
+    }
+    if (!(await waitIfPaused())) return;
+
+    // Progressive Inspector Population across Scout..Envoy
+    if (index === 0) {
+      const initialDocIds = [scanDoc?.id, documents[0]?.id].filter(
+        (v): v is string => Boolean(v)
+      );
+      revealNodes(initialDocIds);
+    } else if (index === 1) {
+      revealNodes(documents.map((d) => d.id));
+    } else if (index === 2) {
+      revealWorkItems(temporalItems, true);
+    } else if (index === 3) {
+      revealWorkItems(
+        effectiveAllItems.filter(
+          (w) => w.priority_tier === "P0_CRITICAL" || w.priority_tier === "P1_HIGH"
+        ),
+        true
+      );
+    } else if (index === 4) {
+      revealWorkItems(effectiveAllItems, true);
+    } else if (index === 5) {
+      revealWorkItems(effectiveAllItems, false);
+    }
+
+    const completedMs = Date.now();
+    const perfEnd =
+      typeof globalThis.performance?.now === "function"
+        ? globalThis.performance.now()
+        : completedMs;
+    const latencyMs = Math.max(1, Math.round(perfEnd - perfStart));
+
+    let completedSummary = `${role} completed`;
+    let details: Record<string, unknown> = { stage: agentName, role };
+
+    if (index === 0) {
+      completedSummary = `${totalPages} pages scanned · ${lowConfNodes.length} low-confidence region${lowConfNodes.length === 1 ? "" : "s"} flagged`;
+      details = {
+        pages_scanned: totalPages,
+        low_confidence_regions: lowConfNodes.length,
+        flagged_document: scanDoc?.filename ?? null,
+      };
+    } else if (index === 1) {
+      completedSummary = `${allNodesList.length} nodes tagged across ${documents.length} documents`;
+      details = {
+        total_nodes: allNodesList.length,
+        documents: documents.length,
+        categories: Array.from(new Set(documents.map((d) => d.category).filter(Boolean))),
+      };
+    } else if (index === 2) {
+      completedSummary = `${documents.length} docs sequenced · ${temporalItems.length} supersession conflict${temporalItems.length === 1 ? "" : "s"}`;
+      details = {
+        latest_documents: latestDocs.map((d) => d.filename),
+        superseded_documents: supersededDocs.map((d) => d.filename),
+        conflicts: temporalItems.length,
+      };
+    } else if (index === 3) {
+      completedSummary = `Scored ${allNodesList.length} nodes · ${p0Count} critical (P0) · ${p1Count} high (P1)`;
+      details = {
+        total_nodes: allNodesList.length,
+        p0_critical: p0Count,
+        p1_high: p1Count,
+      };
+    } else if (index === 4) {
+      completedSummary = `${totalMetrics.total} findings extracted · ${totalMetrics.machineVerified} verified ≥97%`;
+      details = {
+        findings_extracted: totalMetrics.total,
+        verified_97_plus: totalMetrics.machineVerified,
+        needs_triage: totalMetrics.needsTriage,
+      };
+    } else if (index === 5) {
+      completedSummary = `${temporalItems.length} temporal contradiction${temporalItems.length === 1 ? "" : "s"} resolved · authoritative policy precedence enforced`;
+      details = {
+        conflicts_resolved: temporalItems.length,
+        resolved: true,
+        latest_documents: latestDocs.map((d) => d.filename),
+      };
+    } else {
+      const score = totalMetrics.defensibilityScore ?? 0;
+      completedSummary = `Executive synthesis generated · ${score}% defensibility (${totalMetrics.machineVerified}/${totalMetrics.total} verified)`;
+      details = {
+        defensibility_score: score,
+        machine_verified: totalMetrics.machineVerified,
+        total_items: totalMetrics.total,
+        needs_triage: totalMetrics.needsTriage,
+      };
+    }
+
+    const outputHash = await checksum(JSON.stringify({ agentName, details, latencyMs }));
+    if (runId !== localRun) return;
+
+    get().appendEvent({
+      type: "agent_transition",
+      agent_name: agentName,
+      current_agent_index: index,
       status: "completed",
-      latency_ms: 550,
-      document_id: targetDoc.id,
-      node_index: current.current_node_index,
-      message: `${AGENT_ROLES[index]} completed verified inspection on ${targetDoc.filename}. Zero unverified claims emitted.`,
+      job_status: index === AGENTS.length - 1 ? "COMPLETED" : "RUNNING",
+      job_id: job.job_id,
+      run_id: telemetryRunId,
+      started_at: startedMs,
+      completed_at: completedMs,
+      latency_ms: latencyMs,
+      input_hash: inputHash,
+      output_hash: outputHash,
+      document_id: stageDoc?.id ?? null,
+      document_filename: stageDoc?.filename ?? null,
+      summary: completedSummary,
+      message: completedSummary,
+      details,
     });
   }
+
   if (runId !== localRun) return;
-  const items: WorkItem[] = get().workItems ?? [];
+  const items: WorkItem[] = get().workItems ?? effectiveAllItems;
   const metrics = computeWorkItemMetrics(items);
   const completedJob: JobExecution = {
     ...job,
@@ -954,6 +1177,10 @@ export async function runLocalMultiAgentReview(
     job: completedJob,
     isSimulating: false,
     hasCompletedRun: true,
+    jobCompletedAt: Date.now(),
     notice: `Review complete — ${metrics.machineVerified}/${metrics.total} machine-verified. ${metrics.needsTriage} item(s) require action.`,
   }));
+  if (typeof get().loadSummary === "function") {
+    void get().loadSummary(get().summaryParams, true);
+  }
 }

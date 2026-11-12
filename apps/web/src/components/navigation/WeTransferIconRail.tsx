@@ -5,10 +5,26 @@ import { useBertStore } from "../../store/useBertStore";
 
 export function WeTransferIconRail() {
   const navigate = useNavigate();
-  const { workItems, activeJob, workspaceId } = useBertStore();
+  const { workItems, activeJob, workspaceId, wsStatus, backendAvailable } = useBertStore();
   const running = activeJob?.status === "RUNNING";
   const { needsTriage } = computeWorkItemMetrics(workItems);
   const wsQuery = `?workspace=${encodeURIComponent(workspaceId || "default")}`;
+  const railStatusTitle =
+    wsStatus === "connected"
+      ? "System Status: Live WebSocket Connected"
+      : wsStatus === "connecting" || wsStatus === "reconnecting"
+        ? "System Status: WebSocket Connecting"
+        : backendAvailable
+          ? "System Status: Verified Gate Online (REST)"
+          : "System Status: Offline Local Simulation Mode";
+  const railDotColor =
+    wsStatus === "connected"
+      ? "bg-emerald-600"
+      : wsStatus === "connecting" || wsStatus === "reconnecting"
+        ? "bg-amber-500"
+        : backendAvailable
+          ? "bg-blue-600"
+          : "bg-zinc-500";
 
   return (
     <aside
@@ -112,12 +128,13 @@ export function WeTransferIconRail() {
       <div className="flex flex-col items-center gap-3">
         <button
           type="button"
+          data-testid="rail-connection-status"
           onClick={() => navigate(`/workspace${wsQuery}`)}
           className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 flex items-center justify-center text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-          title="System Status: Verified Gate Online"
-          aria-label="Open verified workspace status"
+          title={railStatusTitle}
+          aria-label={railStatusTitle}
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-600" />
+          <span className={`w-2 h-2 rounded-full ${railDotColor}`} />
         </button>
         <button
           type="button"

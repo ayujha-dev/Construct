@@ -82,10 +82,13 @@ function testReactiveStateLogic() {
   function simulateAppendEvent(currentState, event, onRefresh) {
     let nextJob = currentState.activeJob;
     if (currentState.activeJob && (!event.job_id || event.job_id === currentState.activeJob.job_id)) {
-      const isJobTransition = ["JOB_PAUSED", "JOB_PAUSING", "JOB_RESUMED", "JOB_RESUMING", "JOB_COMPLETED", "JOB_FAILED"].includes(event.type);
-      const newStatus = isJobTransition
-        ? event.type.replace("JOB_", "")
-        : (event.status ?? currentState.activeJob.status);
+      let newStatus = event.status ?? currentState.activeJob.status;
+      if (event.type === "JOB_PAUSED") newStatus = "PAUSED";
+      else if (event.type === "JOB_PAUSING") newStatus = "PAUSING";
+      else if (event.type === "JOB_RESUMED") newStatus = "RUNNING";
+      else if (event.type === "JOB_RESUMING") newStatus = "RESUMING";
+      else if (event.type === "JOB_COMPLETED") newStatus = "COMPLETED";
+      else if (event.type === "JOB_FAILED") newStatus = "FAILED";
 
       nextJob = {
         ...currentState.activeJob,
@@ -97,14 +100,21 @@ function testReactiveStateLogic() {
     }
 
     const isCompleted = event.type === "JOB_COMPLETED" || event.status === "COMPLETED";
+    const isFailed = event.type === "JOB_FAILED" || event.status === "FAILED";
     const isPaused = event.type === "JOB_PAUSED" || event.status === "PAUSED";
+    const isResumed = event.type === "JOB_RESUMED" || event.type === "JOB_RESUMING";
 
     const nextState = {
       ...currentState,
       events: [...currentState.events.slice(-249), { ...event, created_at: event.created_at ?? Date.now() }],
       activeJob: nextJob,
       job: nextJob,
-      isSimulating: isCompleted || isPaused ? false : (currentState.isSimulating || (nextJob?.status === "RUNNING")),
+      isSimulating:
+        isCompleted || isFailed || isPaused
+          ? false
+          : isResumed
+            ? true
+            : (currentState.isSimulating || (nextJob?.status === "RUNNING")),
     };
 
     if (isCompleted && onRefresh) {
@@ -153,10 +163,9 @@ function testReactiveStateLogic() {
 
   // 3. Status transition on JOB_RESUMED
   state = simulateAppendEvent(state, { type: "JOB_RESUMED", job_id: "job-1" }, onRefresh);
-  console.log(`  [Observed State after JOB_RESUMED] activeJob.status="${state.activeJob.status}", isSimulating=${state.isSimulating}`);
-  if (!state.isSimulating) {
-    console.log("  ⚠️ [FINDING] When JOB_RESUMED arrives, isSimulating evaluates to false because nextJob.status is 'RESUMED' rather than 'RUNNING' and previous isSimulating was false.");
-  }
+  assertEqual(state.activeJob.status, "RUNNING", "JOB_RESUMED must transition status back to RUNNING");
+  assertEqual(state.isSimulating, true, "JOB_RESUMED must restore isSimulating to true");
+  console.log("  ✓ JOB_RESUMED transitions status back to RUNNING and sets isSimulating=true");
 
   // 4. Completed transition
   state = simulateAppendEvent(state, { type: "JOB_COMPLETED", job_id: "job-1" }, onRefresh);
