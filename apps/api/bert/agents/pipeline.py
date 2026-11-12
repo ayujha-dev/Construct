@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from itertools import islice
@@ -16,7 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bert.agents.arbiter import resolve_conflicts
-from bert.agents.chronos import analyze_versions
+from bert.agents.chronos import analyze_versions, select_temporal_conflict_pairs
 from bert.agents.controller import JobController
 from bert.agents.envoy import build_executive_summary, synthesize_verified_output
 from bert.agents.quartermaster import categorize_nodes
@@ -40,11 +41,13 @@ from bert.models.documents import (
 )
 from bert.verification.citation_gate import (
     INSUFFICIENT_EVIDENCE_OUTPUT,
+    assess_quote_strength,
     hard_gate_fields,
     payload_hash,
     run_verification_gate,
     verify_region_text,
 )
+from bert.verification.metrics import compute_work_item_metrics
 
 AGENT_NAMES: tuple[str, ...] = ("Scout", "Quartermaster", "Chronos", "Vanguard", "Ranger", "Arbiter", "Envoy")
 AGENT_MODELS: dict[str, str] = {
@@ -76,6 +79,13 @@ class EventSink:
         for listener, result in zip(listeners, results, strict=True):
             if isinstance(result, Exception):
                 self._listeners.discard(listener)
+
+
+async def _is_job_cancelled(controller: JobController | None, job_id: UUID | None) -> bool:
+    if controller is None or job_id is None:
+        return False
+    state = await controller.get(job_id)
+    return bool(state is not None and (state.cancelled or state.status == "CANCELLED"))
 
 
 async def _audit(
@@ -144,8 +154,14 @@ async def _agent_transition(
         }
     )
     await asyncio.sleep(random.uniform(0.4, 0.6) if settings.inference_mode == "demo_simulator" else 0.0)
+    if await _is_job_cancelled(controller, job_id):
+        await session.rollback()
+        return False
     if settings.inference_mode != "demo_simulator":
         await InferenceRuntime().complete(agent, {"input": input_payload, "output_shape": output_payload})
+    if await _is_job_cancelled(controller, job_id):
+        await session.rollback()
+        return False
     elapsed = max(1, int((time.perf_counter() - started) * 1000))
     await _audit(
         session,
@@ -313,6 +329,15 @@ def _tier_for_score(score: int) -> PriorityTier:
     return PriorityTier.P3_LOW
 
 
+def _min_words_for_node(node: ASTNode | None, quote: str) -> int | None:
+    """Allow canonical dot-delimited JSON rules (>= 24 chars, >= 4 semantic tokens) through word-count gate."""
+    if node is not None and str(getattr(node.node_type, "value", node.node_type)) == NodeType.JSON_RULE.value:
+        semantic_tokens = re.findall(r"[A-Za-z0-9_*]+", quote)
+        if len(semantic_tokens) >= settings.min_quote_words:
+            return 1
+    return None
+
+
 def verify_node_region(
     node: ASTNode,
     document: Document | None,
@@ -373,6 +398,21 @@ def _citation_payload(
     }
 
 
+def summary_ws_payload(summary_record: ExecutiveSummaryRecord) -> dict[str, Any]:
+    return {
+        "type": "summary_generated",
+        "summary_id": str(summary_record.id),
+        "document_id": str(summary_record.document_id) if summary_record.document_id else None,
+        "total_work_items": summary_record.total_work_items,
+        "verified_count": summary_record.verified_count,
+        "human_override_count": summary_record.human_override_count,
+        "escalated_legal_count": summary_record.escalated_legal_count,
+        "not_applicable_count": summary_record.not_applicable_count,
+        "unresolved_count": summary_record.unresolved_count,
+        "defensibility_score": summary_record.defensibility_score,
+    }
+
+
 async def persist_executive_summary(
     session: AsyncSession,
     *,
@@ -413,9 +453,14 @@ async def persist_executive_summary(
         latest_only=summary_data["latest_only"],
         total_work_items=summary_data["total_work_items"],
         verified_count=summary_data["verified_count"],
+        human_override_count=summary_data["human_override_count"],
         unresolved_count=summary_data["unresolved_count"],
         escalated_legal_count=summary_data["escalated_legal_count"],
+        not_applicable_count=summary_data["not_applicable_count"],
         critical_count=summary_data["critical_count"],
+        critical_open_count=summary_data["critical_open_count"],
+        high_open_count=summary_data["high_open_count"],
+        weak_evidence_count=summary_data["weak_evidence_count"],
         defensibility_score=summary_data["defensibility_score"],
         summary_text=summary_data["summary_text"],
         markdown=summary_data["markdown"],
@@ -426,6 +471,165 @@ async def persist_executive_summary(
     session.add(record)
     await session.flush()
     return record
+
+
+async def _emit_chronos_temporal_conflicts(
+    session: AsyncSession,
+    sink: EventSink,
+    *,
+    workspace_id: UUID,
+    batch_id: UUID,
+    documents: list[Document],
+    all_nodes: list[ASTNode],
+    conflict: dict[str, Any],
+    pdf_page_cache: dict[tuple[str, int], list[dict[str, Any]]],
+    controller: JobController | None = None,
+    job_id: UUID | None = None,
+) -> list[WorkItem]:
+    if not conflict.get("resolved"):
+        return []
+    pairs = select_temporal_conflict_pairs(documents, all_nodes)
+    emitted: list[WorkItem] = []
+    for latest_doc, legacy_doc, newer_node, older_node in pairs:
+        if await _is_job_cancelled(controller, job_id):
+            return emitted
+        new_ok, new_region_score = verify_node_region(
+            newer_node,
+            latest_doc,
+            newer_node.verbatim_text,
+            pdf_page_cache=pdf_page_cache,
+        )
+        old_ok, old_region_score = verify_node_region(
+            older_node,
+            legacy_doc,
+            older_node.verbatim_text,
+            pdf_page_cache=pdf_page_cache,
+        )
+        gate = run_verification_gate(
+            [newer_node.verbatim_text, older_node.verbatim_text],
+            [newer_node.verbatim_text, older_node.verbatim_text],
+            min_quote_words=(
+                1
+                if _min_words_for_node(newer_node, newer_node.verbatim_text) == 1
+                and _min_words_for_node(older_node, older_node.verbatim_text) == 1
+                else None
+            ),
+        )
+        both_passed = gate.passed and new_ok and old_ok and new_region_score >= 97.0 and old_region_score >= 97.0
+
+        newer_cit = _citation_payload(newer_node, latest_doc, newer_node.verbatim_text, gate.best_citation_score, new_region_score)
+        older_cit = _citation_payload(older_node, legacy_doc, older_node.verbatim_text, gate.best_citation_score, old_region_score)
+
+        status = VerificationStatus.VERIFIED if both_passed else VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        weak = (not both_passed) and gate.weak_evidence
+        weak_reason = gate.weak_evidence_reason if weak else (
+            None if both_passed else "Temporal conflict source region requires human verification."
+        )
+        evidence_quality = "strong" if both_passed else ("weak" if weak else "missing")
+
+        newer_date = latest_doc.effective_date.isoformat() if latest_doc.effective_date else None
+        older_date = legacy_doc.effective_date.isoformat() if legacy_doc.effective_date else None
+        resolution = f"{latest_doc.filename} supersedes {legacy_doc.filename}"
+
+        temporal_payload = {
+            "newer_doc_id": str(latest_doc.id),
+            "newer_filename": latest_doc.filename,
+            "newer_effective_date": newer_date,
+            "newer_quote": newer_node.verbatim_text,
+            "newer_locator": newer_cit["locator"],
+            "newer_region_match_score": new_region_score,
+            "older_doc_id": str(legacy_doc.id),
+            "older_filename": legacy_doc.filename,
+            "older_effective_date": older_date,
+            "older_quote": older_node.verbatim_text,
+            "older_locator": older_cit["locator"],
+            "older_region_match_score": old_region_score,
+            "resolution": resolution,
+            "superseded_by": str(latest_doc.id),
+        }
+
+        facts = [
+            ExtractedFact(
+                fact_type="NEWER_POLICY",
+                value=newer_node.verbatim_text[:90],
+                verbatim_quote=newer_node.verbatim_text,
+                ast_node_id=str(newer_node.id),
+                confidence=0.98 if new_ok else 0.72,
+                locator=newer_cit["locator"],
+                region_match_score=new_region_score,
+            ),
+            ExtractedFact(
+                fact_type="SUPERSEDED_POLICY",
+                value=older_node.verbatim_text[:90],
+                verbatim_quote=older_node.verbatim_text,
+                ast_node_id=str(older_node.id),
+                confidence=0.98 if old_ok else 0.72,
+                locator=older_cit["locator"],
+                region_match_score=old_region_score,
+            ),
+        ]
+
+        fluent_output = (
+            f"Chronos detected temporal supersession: {latest_doc.filename} "
+            f"({newer_date or 'latest'}) supersedes {legacy_doc.filename} ({older_date or 'legacy'}). "
+            f"Authoritative clause: {newer_node.verbatim_text}"
+            if both_passed
+            else f"Chronos detected potential temporal supersession between {latest_doc.filename} and {legacy_doc.filename} — human verification required."
+        )
+        min_score = round(min(new_region_score, old_region_score), 2)
+        gate_telemetry = {
+            "citation_match": min_score if both_passed else round(min(gate.best_citation_score, min_score), 2),
+            "region_match_score": min_score,
+            "critical_logprob": gate.best_logprob,
+            "failed_citations": gate.failed_citations,
+            "failed_logprobs": gate.failed_logprobs,
+            "supersession": resolution,
+            "weak_evidence": weak,
+            "weak_evidence_reason": weak_reason,
+        }
+
+        item = WorkItem(
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+            document_id=None,
+            item_type="TEMPORAL_CONFLICT",
+            category="Temporal Governance",
+            priority_tier=PriorityTier.P1_HIGH,
+            priority_score=80,
+            original_priority_tier=PriorityTier.P1_HIGH.value,
+            prompt_or_question=f"Temporal Conflict: {resolution}",
+            fluent_output=fluent_output,
+            structured_facts=[fact.model_dump() for fact in facts],
+            verified_citations=[newer_cit, older_cit],
+            verification_status=status,
+            resolved_by_tier=ResolvedByTier.TIER3_ARBITER,
+            weak_evidence=weak,
+            weak_evidence_reason=weak_reason,
+            evidence_quality=evidence_quality,
+            temporal_conflict=temporal_payload,
+            gate_telemetry=gate_telemetry,
+        )
+        session.add(item)
+        await session.flush()
+        emitted.append(item)
+
+        await _audit(
+            session,
+            agent="Chronos",
+            action="TEMPORAL_CONFLICT",
+            input_payload={
+                "newer_doc_id": str(latest_doc.id),
+                "older_doc_id": str(legacy_doc.id),
+            },
+            output_payload=temporal_payload,
+            document_id=latest_doc.id,
+            work_item_id=item.id,
+            processing_ms=1,
+            confidence=min_score / 100.0 if both_passed else 0.0,
+        )
+        await session.commit()
+        await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
+    return emitted
 
 
 async def run_regiment(
@@ -551,37 +755,68 @@ async def run_regiment(
             # Low-confidence or stamped regions must remain human-visible even
             # though the text fallback can technically reproduce the quote.
             gate_quote = "[unreadable source region]" if source_node.ocr_confidence < 0.90 else quote
-            gate = run_verification_gate([gate_quote], [quote])
+            gate = run_verification_gate(
+                [gate_quote],
+                [quote],
+                min_quote_words=_min_words_for_node(source_node, gate_quote),
+            )
             passed = gate.passed and region_passed
+            is_weak = (not passed) and region_passed and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
             score = _risk_score(quote, source_node.ocr_confidence)
+            if passed:
+                status = VerificationStatus.VERIFIED
+                tier = _tier_for_score(score)
+                priority_score = score
+                fluent_output = f"Verified source excerpt from {document.filename if document else 'uploaded file'}."
+                citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
+                weak_evidence = False
+                weak_reason: str | None = None
+                evidence_quality = "strong"
+            elif is_weak:
+                status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+                tier = PriorityTier.P1_HIGH
+                priority_score = max(score, 75)
+                fluent_output = gate.fluent_output or "Weak evidence flagged for human verification."
+                citations = [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
+                weak_evidence = True
+                weak_reason = gate.weak_evidence_reason
+                evidence_quality = "weak"
+            else:
+                status = VerificationStatus.INSUFFICIENT_EVIDENCE
+                tier = PriorityTier.P0_CRITICAL
+                priority_score = 100
+                fluent_output = INSUFFICIENT_EVIDENCE_OUTPUT
+                citations = []
+                weak_evidence = False
+                weak_reason = None
+                evidence_quality = "missing"
+
             item = WorkItem(
                 workspace_id=workspace_id,
                 batch_id=batch_id,
                 document_id=source_node.document_id,
                 item_type="DOCUMENT_FINDING",
                 category=_category_for_question(quote),
-                priority_tier=PriorityTier.P0_CRITICAL if not passed else _tier_for_score(score),
-                priority_score=100 if not passed else score,
+                priority_tier=tier,
+                priority_score=priority_score,
+                original_priority_tier=tier.value,
                 prompt_or_question=source_node.section_path or f"Source item {index}",
-                fluent_output=(
-                    INSUFFICIENT_EVIDENCE_OUTPUT
-                    if not passed
-                    else f"Verified source excerpt from {document.filename if document else 'uploaded file'}."
-                ),
+                fluent_output=fluent_output,
                 structured_facts=[fact.model_dump()],
-                verified_citations=(
-                    [_citation_payload(source_node, document, quote, gate.best_citation_score, region_match_score)]
-                    if passed
-                    else []
-                ),
-                verification_status=VerificationStatus.VERIFIED if passed else VerificationStatus.INSUFFICIENT_EVIDENCE,
+                verified_citations=citations,
+                verification_status=status,
                 resolved_by_tier=ResolvedByTier.TIER2_SLM_REGIMENT,
+                weak_evidence=weak_evidence,
+                weak_evidence_reason=weak_reason,
+                evidence_quality=evidence_quality,
                 gate_telemetry={
                     "citation_match": gate.best_citation_score,
                     "region_match_score": region_match_score,
                     "critical_logprob": gate.best_logprob,
                     "failed_citations": gate.failed_citations,
                     "failed_logprobs": gate.failed_logprobs,
+                    "weak_evidence": weak_evidence,
+                    "weak_evidence_reason": weak_reason,
                 },
             )
             session.add(item)
@@ -611,6 +846,23 @@ async def run_regiment(
             await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
             await session.commit()
 
+        temporal_items = await _emit_chronos_temporal_conflicts(
+            session,
+            sink,
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+            documents=documents,
+            all_nodes=all_nodes,
+            conflict=conflict,
+            pdf_page_cache=pdf_page_cache,
+            controller=controller,
+            job_id=job_id,
+        )
+        generic_items.extend(temporal_items)
+
+        if await _is_job_cancelled(controller, job_id):
+            return generic_items
+
         summary_record = await persist_executive_summary(
             session,
             arbiter_resolutions=conflict,
@@ -618,23 +870,14 @@ async def run_regiment(
             mark_prior_stale=True,
         )
         await session.commit()
+        metrics = compute_work_item_metrics(generic_items)
         await transition(
             "Envoy",
-            {"verified_facts": len(generic_items)},
-            {"outputs": len(generic_items), "summary_id": str(summary_record.id)},
+            {"verified_facts": metrics["machine_verified"]},
+            {"outputs": metrics["machine_verified"], "metrics": metrics, "summary_id": str(summary_record.id)},
             agent_index=6,
         )
-        await sink.publish(
-            {
-                "type": "summary_generated",
-                "summary_id": str(summary_record.id),
-                "document_id": None,
-                "total_work_items": summary_record.total_work_items,
-                "verified_count": summary_record.verified_count,
-                "escalated_legal_count": summary_record.escalated_legal_count,
-                "defensibility_score": summary_record.defensibility_score,
-            }
-        )
+        await sink.publish(summary_ws_payload(summary_record))
         return generic_items
 
     question_nodes = [node for node in all_nodes if node.document_id == questionnaire.id]
@@ -669,7 +912,8 @@ async def run_regiment(
             await session.commit()
             return work_items
         question = str((question_node.structured_payload or {}).get("row_data", {}).get("Question", question_node.verbatim_text))
-        fact_node = _fact_node(question, source_nodes, doc_by_id=source_documents)
+        is_unanswerable = "unanswerable" in question.lower()
+        fact_node = None if is_unanswerable else _fact_node(question, source_nodes, doc_by_id=source_documents)
         fact_doc = source_documents.get(fact_node.document_id) if fact_node is not None else None
         facts: list[ExtractedFact] = []
         region_passed = False
@@ -696,22 +940,12 @@ async def run_regiment(
                     region_match_score=region_match_score,
                 )
             ]
-        if "unanswerable" in question.lower():
-            facts = [
-                ExtractedFact(
-                    fact_type="CLAUSE",
-                    value="unverified claim",
-                    verbatim_quote="This statement is not in the uploaded corpus",
-                    ast_node_id=str(question_node.id),
-                    confidence=0.42,
-                    locator=dict(question_node.locator) if question_node.locator else None,
-                    region_match_score=0.0,
-                )
-            ]
+
+        if fact_node is None or is_unanswerable:
+            quotes: list[str] = []
             region_passed = False
             region_match_score = 0.0
-
-        if fact_node is not None and fact_node.ocr_confidence < 0.90 and "unanswerable" not in question.lower():
+        elif fact_node.ocr_confidence < 0.90:
             quotes = ["[unreadable source region]"]
             region_passed = False
             region_match_score = 0.0
@@ -719,14 +953,29 @@ async def run_regiment(
             quotes = [fact.verbatim_quote for fact in facts]
 
         token_logprobs = [{"token": fact.value[:12], "entity_type": fact.fact_type, "probability": 0.96} for fact in facts]
-        gate = run_verification_gate(quotes or [question], source_texts, token_logprobs)
-        passed = gate.passed and (region_passed if fact_node is not None and "unanswerable" not in question.lower() else False)
+        gate = run_verification_gate(
+            quotes,
+            source_texts,
+            token_logprobs,
+            min_quote_words=_min_words_for_node(fact_node, quotes[0]) if quotes else None,
+        )
+        passed = gate.passed and region_passed and fact_node is not None and not is_unanswerable
+        is_weak = (
+            (not passed)
+            and fact_node is not None
+            and not is_unanswerable
+            and region_passed
+            and gate.verification_status == VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        )
+
         gate_payload = {
             "citation_match": gate.best_citation_score,
             "region_match_score": region_match_score,
             "critical_logprob": gate.best_logprob,
             "failed_citations": gate.failed_citations,
             "failed_logprobs": gate.failed_logprobs,
+            "weak_evidence": is_weak,
+            "weak_evidence_reason": gate.weak_evidence_reason if is_weak else None,
         }
         await _audit(
             session,
@@ -756,12 +1005,36 @@ async def run_regiment(
             score = 92 if "wildcard" in question.lower() else 72 - index
             tier = _tier_for_score(score)
             resolved = ResolvedByTier.TIER1_CACHE if index == 1 else ResolvedByTier.TIER2_SLM_REGIMENT
+            weak_evidence = False
+            weak_reason = None
+            evidence_quality = "strong"
+            citations = [
+                _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
+                for fact in facts
+            ]
+        elif is_weak and fact_node is not None:
+            output = str(fields.get("fluent_output") or "Weak evidence flagged for human verification.")
+            status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+            score = 80
+            tier = PriorityTier.P1_HIGH
+            resolved = ResolvedByTier.TIER2_SLM_REGIMENT
+            weak_evidence = True
+            weak_reason = gate.weak_evidence_reason
+            evidence_quality = "weak"
+            citations = [
+                _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
+                for fact in facts
+            ]
         else:
-            output = str(fields.get("fluent_output") or INSUFFICIENT_EVIDENCE_OUTPUT)
+            output = INSUFFICIENT_EVIDENCE_OUTPUT
             status = VerificationStatus.INSUFFICIENT_EVIDENCE
             score = 100
             tier = PriorityTier.P0_CRITICAL
             resolved = ResolvedByTier.TIER3_ARBITER if "conflict" in question.lower() else ResolvedByTier.TIER2_SLM_REGIMENT
+            weak_evidence = False
+            weak_reason = None
+            evidence_quality = "missing"
+            citations = []
 
         supersession_note: str | None = None
         if conflict.get("resolved") and "password" in question.lower():
@@ -777,23 +1050,39 @@ async def run_regiment(
             category=_category_for_question(question),
             priority_tier=tier,
             priority_score=score,
+            original_priority_tier=tier.value,
             prompt_or_question=question,
             fluent_output=output,
             structured_facts=[fact.model_dump() for fact in facts],
-            verified_citations=[
-                _citation_payload(fact_node, fact_doc, fact.verbatim_quote, gate.best_citation_score, region_match_score)
-                for fact in facts
-            ]
-            if passed and fact_node is not None
-            else [],
+            verified_citations=citations,
             verification_status=status,
             resolved_by_tier=resolved,
+            weak_evidence=weak_evidence,
+            weak_evidence_reason=weak_reason,
+            evidence_quality=evidence_quality,
             gate_telemetry=gate_payload | {"supersession": supersession_note},
         )
         session.add(work_item)
         await session.flush()
         await session.commit()
         work_items.append(work_item)
+
+    temporal_items = await _emit_chronos_temporal_conflicts(
+        session,
+        sink,
+        workspace_id=workspace_id,
+        batch_id=batch_id,
+        documents=documents,
+        all_nodes=all_nodes,
+        conflict=conflict,
+        pdf_page_cache=pdf_page_cache,
+        controller=controller,
+        job_id=job_id,
+    )
+    work_items.extend(temporal_items)
+
+    if await _is_job_cancelled(controller, job_id):
+        return work_items
 
     summary_record = await persist_executive_summary(
         session,
@@ -803,24 +1092,15 @@ async def run_regiment(
     )
     await session.commit()
 
+    metrics = compute_work_item_metrics(work_items)
     await transition(
         "Envoy",
         {"verified_facts": [fact.model_dump() for fact in verified_facts]},
-        {"outputs": sum(item.verification_status == VerificationStatus.VERIFIED for item in work_items), "summary_id": str(summary_record.id)},
+        {"outputs": metrics["machine_verified"], "metrics": metrics, "summary_id": str(summary_record.id)},
         document_id=questionnaire.id,
         agent_index=6,
     )
-    await sink.publish(
-        {
-            "type": "summary_generated",
-            "summary_id": str(summary_record.id),
-            "document_id": None,
-            "total_work_items": summary_record.total_work_items,
-            "verified_count": summary_record.verified_count,
-            "escalated_legal_count": summary_record.escalated_legal_count,
-            "defensibility_score": summary_record.defensibility_score,
-        }
-    )
+    await sink.publish(summary_ws_payload(summary_record))
     for item in work_items:
         await sink.publish({"type": "work_item", "id": str(item.id), "status": item.verification_status.value})
     return work_items
@@ -864,15 +1144,24 @@ def _agent_message(agent: str, output: Any) -> str:
     return f"{labels.get(agent, 'Processed source material')} ({output})."
 
 
+def _is_strong_candidate(node: ASTNode) -> bool:
+    if node.ocr_confidence < 0.90:
+        return False
+    if _min_words_for_node(node, node.verbatim_text) == 1:
+        return len(node.verbatim_text.strip()) >= settings.min_quote_chars
+    is_weak, _ = assess_quote_strength(node.verbatim_text)
+    return not is_weak
+
+
 def _fact_node(
     question: str,
     source_nodes: list[ASTNode],
     *,
     doc_by_id: dict[UUID, Document] | None = None,
 ) -> ASTNode | None:
-    import re
-
     lowered = question.lower()
+    if "unanswerable" in lowered:
+        return None
     candidates = source_nodes
     explicit_rule = True
     if "mfa" in lowered or "authentication" in lowered:
@@ -887,21 +1176,36 @@ def _fact_node(
         candidates = [node for node in source_nodes if "password" in node.verbatim_text.lower()]
     else:
         explicit_rule = False
+
     if candidates and doc_by_id:
         latest_candidates = [
             node for node in candidates if doc_by_id.get(node.document_id) and doc_by_id[node.document_id].is_latest_version
         ]
         if latest_candidates:
             candidates = latest_candidates
-    if candidates and not explicit_rule:
-        stop = {"what", "which", "when", "does", "have", "with", "that", "this", "from", "into", "current", "documented", "available", "control", "policy", "system", "data", "security"}
+
+    if not explicit_rule:
+        stop = {
+            "what", "which", "when", "does", "have", "with", "that", "this", "from",
+            "into", "current", "documented", "available", "control", "policy",
+            "system", "data", "security",
+        }
         q_terms = {tok for tok in re.findall(r"[a-z0-9]{4,}", lowered) if tok not in stop}
-        if q_terms:
-            scored = [
-                (len(q_terms & set(re.findall(r"[a-z0-9]{4,}", node.verbatim_text.lower()))), -idx, node)
-                for idx, node in enumerate(candidates)
-            ]
-            best_score, _, best_node = max(scored, key=lambda row: (row[0], row[1]))
-            if best_score > 0:
-                return best_node
-    return candidates[0] if candidates else (source_nodes[0] if source_nodes and "unanswerable" not in lowered else None)
+        if not q_terms or not candidates:
+            return None
+        scored = [
+            (
+                len(q_terms & set(re.findall(r"[a-z0-9]{4,}", node.verbatim_text.lower()))),
+                1 if _is_strong_candidate(node) else 0,
+                -idx,
+                node,
+            )
+            for idx, node in enumerate(candidates)
+        ]
+        best_score, _, _, best_node = max(scored, key=lambda row: (row[0], row[1], row[2]))
+        return best_node if best_score > 0 else None
+
+    if not candidates:
+        return None
+    strong = [node for node in candidates if _is_strong_candidate(node)]
+    return strong[0] if strong else candidates[0]

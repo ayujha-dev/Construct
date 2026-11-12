@@ -2,7 +2,13 @@ import type { StateCreator } from "zustand";
 import { bertApi } from "../lib/api";
 import { deriveNodeLocator } from "../lib/evidenceLocators";
 import type { ASTNode, Document, JobExecution } from "../types/bert";
-import { localItems, parseUploadedFileLocally, runLocalMultiAgentReview, uid } from "./simulatorService";
+import {
+  cancelLocalSimulation,
+  localItems,
+  parseUploadedFileLocally,
+  runLocalMultiAgentReview,
+  uid,
+} from "./simulatorService";
 import type { BertState } from "./useBertStore";
 
 export type CorpusStatus = "idle" | "loading" | "ready" | "error";
@@ -140,14 +146,22 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         corpusError: null,
         activeJob: job,
         job,
+        isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
+        hasCompletedRun: job.status === "COMPLETED",
         selectedDocumentId: document.id,
         selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
         backendAvailable: true,
         notice: `Uploaded ${document.filename} · Seven-agent review started.`,
       }));
       await get().loadNodes(document.id);
       void get().loadSummary(get().summaryParams, true);
     } catch {
+      cancelLocalSimulation();
       const workspaceId = get().workspaceId ?? uid();
       const batchId = uid();
       const { document, nodes } = await parseUploadedFileLocally(file, workspaceId);
@@ -175,9 +189,15 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         corpusError: null,
         selectedDocumentId: document.id,
         selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
         activeJob: job,
         job,
         isSimulating: true,
+        hasCompletedRun: false,
         backendAvailable: false,
         notice: `Uploaded ${document.filename} · Running local 7-agent verification.`,
       }));

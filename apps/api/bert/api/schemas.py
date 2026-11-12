@@ -58,11 +58,17 @@ EvidenceLocator = Annotated[
 
 
 class GateTelemetry(BaseModel):
-    citation_match: float = 100.0
-    critical_logprob: float = 1.0
+    model_config = ConfigDict(extra="allow")
+    citation_match: float = 0.0
+    critical_logprob: float = 0.0
     failed_citations: list[dict[str, Any]] = Field(default_factory=list)
     failed_logprobs: list[dict[str, Any]] = Field(default_factory=list)
     supersession: str | None = None
+    region_match_score: float | None = None
+    weak_evidence: bool | None = None
+    weak_evidence_reason: str | None = None
+    override_citation_text: str | None = None
+    manual_override: bool | None = None
 
 
 class FactResponse(BaseModel):
@@ -98,6 +104,13 @@ class WorkItemResponse(BaseModel):
     escalated_at: datetime | None = None
     escalated_by: str | None = None
     original_priority_tier: str | None = None
+    human_override_reason_code: str | None = None
+    no_evidence_attestation: bool = False
+    override_locator: EvidenceLocator | None = None
+    weak_evidence: bool = False
+    weak_evidence_reason: str | None = None
+    evidence_quality: str = "missing"
+    temporal_conflict: dict[str, Any] | None = None
     can_undo: bool = False
     created_at: datetime
 
@@ -180,6 +193,9 @@ class SeedResponse(BaseModel):
     document_count: int
     work_item_count: int
     critical_count: int
+    verified_count: int = 0
+    unresolved_count: int = 0
+    defensibility_score: int | None = None
 
 
 class JobExecutionResponse(BaseModel):
@@ -208,6 +224,7 @@ class JobStartRequest(BaseModel):
 class EscalationResponse(BaseModel):
     work_item_id: UUID
     document_id: UUID | None = None
+    item_type: str = "QUESTIONNAIRE_ROW"
     reason: str
     prompt_or_question: str
     priority_tier: str
@@ -218,18 +235,29 @@ class EscalationResponse(BaseModel):
     escalated_at: datetime | None = None
     escalated_by: str | None = None
     original_priority_tier: str | None = None
+    human_override_reason_code: str | None = None
+    no_evidence_attestation: bool = False
+    override_locator: EvidenceLocator | None = None
+    weak_evidence: bool = False
+    weak_evidence_reason: str | None = None
+    evidence_quality: str = "missing"
+    temporal_conflict: dict[str, Any] | None = None
+    gate_telemetry: GateTelemetry = Field(default_factory=GateTelemetry)
     can_undo: bool = False
     verified_citations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EscalationActionRequest(BaseModel):
-    action: Literal["manual_correction", "retry", "skip", "approve", "counsel", "undo"]
+    action: Literal["manual_correction", "retry", "skip", "not_applicable", "approve", "counsel", "undo"]
     note: str | None = None
     correction: str | None = None
     manual_payload: dict[str, Any] | None = None
     assignee: str | None = None
     actor: str | None = None
     reason_code: str | None = None
+    no_evidence_attestation: bool = False
+    override_locator: EvidenceLocator | None = None
+    override_citation_text: str | None = None
 
 
 class UndoRequest(BaseModel):
@@ -263,16 +291,55 @@ class ExecutiveSummaryResponse(BaseModel):
     latest_only: bool = False
     total_work_items: int
     verified_count: int
+    human_override_count: int = 0
     unresolved_count: int
     escalated_legal_count: int
+    not_applicable_count: int = 0
     critical_count: int
-    defensibility_score: float
+    critical_open_count: int = 0
+    high_open_count: int = 0
+    weak_evidence_count: int = 0
+    defensibility_score: float | None = None
     summary_text: str
     markdown: str
     key_findings: list[SummaryKeyFinding] = Field(default_factory=list)
     arbiter_resolutions: dict[str, Any] = Field(default_factory=dict)
     is_stale: bool = False
     created_at: datetime
+
+
+class ExportWarningsResponse(BaseModel):
+    has_unresolved: bool = False
+    has_escalated: bool = False
+    has_overrides: bool = False
+    has_not_applicable: bool = False
+    has_weak_evidence: bool = False
+
+
+class MetricsResponse(BaseModel):
+    total: int
+    machine_verified: int
+    human_override: int
+    escalated_legal: int
+    not_applicable: int
+    unresolved: int
+    critical_total: int
+    critical_open: int
+    high_open: int
+    needs_triage: int
+    weak_evidence_count: int = 0
+    defensibility_score: int | None = None
+    export_warnings: ExportWarningsResponse = Field(default_factory=ExportWarningsResponse)
+
+
+class CorpusResetResponse(BaseModel):
+    status: str = "reset"
+    deleted_documents: int = 0
+    deleted_ast_nodes: int = 0
+    deleted_work_items: int = 0
+    deleted_audit_logs: int = 0
+    deleted_summaries: int = 0
+    deleted_jobs: int = 0
 
 
 class SandboxRequest(BaseModel):

@@ -28,6 +28,7 @@ class TaskExecutionState:
     completed_step_outputs: dict[str, Any] = field(default_factory=dict)
     user_override_instructions: list[str] = field(default_factory=list)
     error_message: str | None = None
+    cancelled: bool = False
     pause_requested: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     resume_requested: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
@@ -108,6 +109,8 @@ class JobController:
         agent_label: str | None = None,
     ) -> bool:
         state = await self._required(job_id)
+        if state.cancelled or state.status in {"COMPLETED", "FAILED", "CANCELLED"}:
+            return False
         state.current_agent_index = agent_index
         state.current_document_id = document_id
         state.current_node_index = node_index
@@ -124,12 +127,25 @@ class JobController:
                 **self.snapshot(state),
             })
             await state.resume_requested.wait()
+            if state.cancelled or state.status == "CANCELLED":
+                return False
             state.resume_requested.clear()
             state.pause_requested.clear()
             state.status = "RUNNING"
             await self._persist(state)
             await self._publish({"type": "JOB_RESUMED", **self.snapshot(state)})
-        return state.status not in {"COMPLETED", "FAILED"}
+        return state.status not in {"COMPLETED", "FAILED", "CANCELLED"}
+
+    async def cancel_active_jobs(self) -> list[UUID]:
+        cancelled_ids: list[UUID] = []
+        for job_id, state in list(self._states.items()):
+            if state.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
+                state.cancelled = True
+                state.status = "CANCELLED"
+                state.pause_requested.clear()
+                state.resume_requested.set()
+                cancelled_ids.append(job_id)
+        return cancelled_ids
 
     async def mark_step(self, job_id: UUID, agent_index: int, output: Any) -> None:
         state = await self._required(job_id)

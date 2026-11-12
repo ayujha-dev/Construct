@@ -16,6 +16,11 @@ import {
   deriveNodeLocator,
   resolveCitationDocument,
 } from "../../lib/evidenceLocators";
+import {
+  computeWorkItemMetrics,
+  getMatchBadgeTone,
+  itemMatchesDocumentFilter,
+} from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
 import { CorpusFilterBanner } from "./CorpusFilterBanner";
 import { EvidenceLocatorBadge } from "./EvidenceLocatorBadge";
@@ -27,6 +32,9 @@ export function BentoCanvas() {
     nodesByDocument,
     workItems,
     workItemUndoSnapshots,
+    activeJob,
+    isSimulating,
+    hasCompletedRun,
     selectedDocumentId,
     selectedFileFilterId,
     setSelectedFileFilter,
@@ -50,21 +58,38 @@ export function BentoCanvas() {
   const scopedWorkItems = useMemo(
     () =>
       selectedFileFilterId
-        ? workItems.filter((i) => i.document_id === selectedFileFilterId)
+        ? workItems.filter((i) => itemMatchesDocumentFilter(i, selectedFileFilterId))
         : workItems,
     [selectedFileFilterId, workItems]
   );
 
+  const scopedMetrics = useMemo(() => computeWorkItemMetrics(scopedWorkItems), [scopedWorkItems]);
+  const isRunning =
+    isSimulating || activeJob?.status === "RUNNING" || activeJob?.status === "RESUMING";
+  const canExport = !isRunning && workItems.length > 0 && hasCompletedRun;
+
   const criticalItems = useMemo(
     () =>
       scopedWorkItems.filter(
-        (i) => i.priority_tier === "P0_CRITICAL" || i.verification_status !== "VERIFIED"
+        (i) =>
+          i.priority_tier === "P0_CRITICAL" ||
+          i.item_type === "TEMPORAL_CONFLICT" ||
+          Boolean(i.temporal_conflict) ||
+          (i.verification_status !== "VERIFIED" &&
+            i.verification_status !== "NOT_APPLICABLE" &&
+            i.verification_status !== "HUMAN_OVERRIDE")
       ),
     [scopedWorkItems]
   );
 
   const pendingQueueItems = useMemo(
-    () => scopedWorkItems.filter((i) => i.verification_status !== "VERIFIED"),
+    () =>
+      scopedWorkItems.filter(
+        (i) =>
+          i.verification_status !== "VERIFIED" &&
+          i.verification_status !== "HUMAN_OVERRIDE" &&
+          i.verification_status !== "NOT_APPLICABLE"
+      ),
     [scopedWorkItems]
   );
 
@@ -262,22 +287,15 @@ export function BentoCanvas() {
                   </div>
                 ) : (
                   criticalItems.map((item) => {
-                    const cit = item.verified_citations[0];
-                    const citDoc = resolveCitationDocument(documents, {
-                      locator: cit?.locator,
-                      documentFilename: cit?.document_filename,
-                      fallbackDocumentId: item.document_id,
-                    });
-                    const matchedNode = citDoc
-                      ? nodesByDocument[citDoc.id]?.find((n) => n.id === cit?.ast_node_id)
-                      : undefined;
-                    const resolvedLocator = cit?.locator ?? deriveNodeLocator(matchedNode, citDoc);
+                    const isTemporalConflict =
+                      item.item_type === "TEMPORAL_CONFLICT" || Boolean(item.temporal_conflict);
 
                     return (
                       <div
                         key={item.id}
                         role="button"
                         tabIndex={0}
+                        data-testid={isTemporalConflict ? "temporal-conflict-card" : "bento-critical-card"}
                         onClick={() => inspectWorkItemCitation(item)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
@@ -287,23 +305,85 @@ export function BentoCanvas() {
                         }}
                         className="p-3 rounded-xl bg-white/95 border border-rose-200 text-xs space-y-2 cursor-pointer hover:border-rose-400 shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       >
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-rose-950">{item.prompt_or_question}</span>
-                          <span className="font-mono text-[10px] font-bold text-rose-800 shrink-0">
-                            {item.priority_tier} · {item.priority_score}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isTemporalConflict && (
+                              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-950 border border-orange-300">
+                                TEMPORAL CONFLICT
+                              </span>
+                            )}
+                            {item.weak_evidence && (
+                              <span
+                                data-testid="weak-evidence-badge"
+                                className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300"
+                              >
+                                Weak Evidence
+                              </span>
+                            )}
+                            <span className="font-mono text-[10px] font-bold text-rose-800">
+                              {item.priority_tier} · {item.priority_score}
+                            </span>
+                          </div>
                         </div>
-                        <EvidenceLocatorBadge
-                          locator={resolvedLocator}
-                          document={citDoc}
-                          fallbackPage={cit?.page_number}
-                          fallbackBbox={cit?.bounding_box ?? matchedNode?.bounding_box}
-                          regionMatchScore={cit?.region_match_score}
-                          context={`bento-critical:${item.id}`}
-                        />
+
+                        {item.verified_citations.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.verified_citations.map((cit, citIdx) => {
+                              const citDoc = resolveCitationDocument(documents, {
+                                locator: cit.locator,
+                                documentFilename: cit.document_filename,
+                                fallbackDocumentId: item.document_id,
+                              });
+                              const matchedNode = citDoc
+                                ? nodesByDocument[citDoc.id]?.find((n) => n.id === cit.ast_node_id)
+                                : undefined;
+                              const resolvedLocator =
+                                cit.locator ?? deriveNodeLocator(matchedNode, citDoc);
+
+                              return (
+                                <button
+                                  key={`${item.id}-cit-${citIdx}`}
+                                  type="button"
+                                  data-testid={
+                                    isTemporalConflict
+                                      ? `chronos-locator-${citIdx}`
+                                      : `bento-locator-${citIdx}`
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    inspectCitation({
+                                      ...cit,
+                                      locator: resolvedLocator,
+                                      bounding_box:
+                                        cit.bounding_box ?? matchedNode?.bounding_box ?? null,
+                                      confidence_score: item.gate_telemetry.citation_match,
+                                      document_filename:
+                                        cit.document_filename || citDoc?.filename || "",
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded hover:opacity-90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                >
+                                  <EvidenceLocatorBadge
+                                    locator={resolvedLocator}
+                                    document={citDoc}
+                                    fallbackPage={cit.page_number}
+                                    fallbackBbox={cit.bounding_box ?? matchedNode?.bounding_box}
+                                    regionMatchScore={cit.region_match_score}
+                                    context={`bento-critical:${item.id}:${citIdx}`}
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         <p className="text-zinc-800 font-serif text-[11px] leading-snug">{item.fluent_output}</p>
                         <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 pt-1">
-                          <span>{item.category}</span>
+                          <span>
+                            {item.category}
+                            {scopedMetrics.total > 0 ? "" : ""}
+                          </span>
                           <span className="text-blue-700 font-medium">Inspect source →</span>
                         </div>
                       </div>
@@ -471,7 +551,15 @@ export function BentoCanvas() {
                       >
                         <div className="flex items-center justify-between gap-2 font-medium">
                           <span className="text-zinc-900 font-semibold truncate">{item.prompt_or_question}</span>
-                          <span className="font-mono text-[10px] text-emerald-800 font-bold shrink-0">
+                          <span
+                            className={`font-mono text-[10px] px-1.5 py-0.5 rounded border font-bold shrink-0 ${
+                              getMatchBadgeTone(
+                                item.gate_telemetry.citation_match,
+                                item.verification_status,
+                                item.weak_evidence
+                              ).badgeClass
+                            }`}
+                          >
                             {item.gate_telemetry.citation_match}% Match
                           </span>
                         </div>
@@ -546,8 +634,18 @@ export function BentoCanvas() {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/results")}
-            className="px-2.5 py-1 rounded-full text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer flex items-center gap-1 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            disabled={!canExport}
+            title={
+              canExport
+                ? "Open Results & Export Report"
+                : "Export unlocks after the review run completes"
+            }
+            onClick={() => navigate("/results?export=1")}
+            className={`px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              canExport
+                ? "text-blue-700 hover:bg-blue-50 cursor-pointer"
+                : "text-zinc-400 cursor-not-allowed"
+            }`}
           >
             <Download size={13} />
             <span>+ Export</span>

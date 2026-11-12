@@ -11,6 +11,7 @@ from typing import Any
 
 from rapidfuzz import fuzz
 
+from bert.config import settings
 from bert.models.documents import PriorityTier, VerificationStatus
 
 CITATION_THRESHOLD: float = 97.0
@@ -19,6 +20,22 @@ CRITICAL_ENTITY_TYPES: frozenset[str] = frozenset(
     {"DATE", "AMOUNT", "PARTY_NAME", "JURISDICTION", "LIABILITY_CAP"}
 )
 INSUFFICIENT_EVIDENCE_OUTPUT: str = "Insufficient evidence in uploaded corpus — flagged for manual review."
+
+_TITLE_CONNECTORS: frozenset[str] = frozenset(
+    {
+        "a", "an", "and", "as", "at", "by", "for", "from", "in", "into",
+        "of", "on", "or", "the", "to", "with", "type", "ii", "iii", "iv", "v",
+    }
+)
+_CLAUSE_VERBS: frozenset[str] = frozenset(
+    {
+        "is", "are", "was", "were", "be", "must", "shall", "should", "may",
+        "will", "can", "requires", "require", "enforces", "enforce", "uses",
+        "use", "applies", "apply", "mandates", "mandate", "retains", "retain",
+        "retained", "rotated", "encrypted", "archived", "prohibits", "prohibit",
+        "contains", "contain", "permits", "permit",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,17 +49,84 @@ class VerificationResult:
     best_logprob: float
     priority_tier: PriorityTier
     fluent_output: str | None
+    weak_evidence: bool = False
+    weak_evidence_reason: str | None = None
+    evidence_quality: str = "missing"
+
+
+def _normalize_whitespace(value: str) -> str:
+    """Make line wrapping and OCR spacing deterministic without changing words."""
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _is_bare_header_or_title(normalized: str, words: list[str]) -> bool:
+    """Detect bare headings or document titles lacking a verifiable policy/control claim."""
+    if not words:
+        return False
+    if "|" in normalized or (":" in normalized and not normalized.startswith("#")):
+        return False
+    if normalized.endswith((".", "!", "?")):
+        return False
+    if normalized.startswith("#"):
+        return True
+    if re.match(r"^(?:section|appendix|article|chapter)\s+\d+(?:\.\d+)*\b", normalized, re.IGNORECASE):
+        if len(words) <= 10 and not any(w.lower().strip(".,;:") in _CLAUSE_VERBS for w in words):
+            return True
+    alpha_words = [re.sub(r"[^A-Za-z0-9]", "", w) for w in words]
+    alpha_words = [w for w in alpha_words if w]
+    if not alpha_words:
+        return False
+    letters_only = "".join(ch for ch in normalized if ch.isalpha())
+    if letters_only and letters_only.isupper() and len(words) <= 12:
+        return True
+    if len(words) <= 10 and not any(w.lower() in _CLAUSE_VERBS for w in alpha_words):
+        significant = [w for w in alpha_words if w.lower() not in _TITLE_CONNECTORS and not w.isdigit()]
+        if significant and all(w[0].isupper() for w in significant):
+            return True
+    return False
+
+
+def assess_quote_strength(
+    quote: str,
+    *,
+    min_quote_chars: int | None = None,
+    min_quote_words: int | None = None,
+) -> tuple[bool, str | None]:
+    """Return ``(is_weak, reason)`` if a quote fails minimum length, word count, or title-only checks."""
+    normalized = _normalize_whitespace(quote)
+    if not normalized:
+        return False, None
+    char_limit = settings.min_quote_chars if min_quote_chars is None else int(min_quote_chars)
+    word_limit = settings.min_quote_words if min_quote_words is None else int(min_quote_words)
+    words = [word for word in normalized.split() if word]
+    reasons: list[str] = []
+    if len(normalized) < char_limit:
+        reasons.append(f"quote length {len(normalized)} chars < minimum {char_limit}")
+    if len(words) < word_limit:
+        reasons.append(f"quote word count {len(words)} < minimum {word_limit}")
+    if _is_bare_header_or_title(normalized, words):
+        reasons.append("bare heading or document title without substantive evidence")
+    if reasons:
+        return True, "; ".join(reasons)
+    return False, None
 
 
 def verify_citations(
-    claimed_quotes: list[str], source_texts: list[str], *, threshold: float = CITATION_THRESHOLD
+    claimed_quotes: list[str],
+    source_texts: list[str],
+    *,
+    threshold: float = CITATION_THRESHOLD,
+    min_quote_chars: int | None = None,
+    min_quote_words: int | None = None,
 ) -> tuple[bool, list[dict[str, Any]]]:
-    """Compare every quote to the best source using the required partial ratio."""
+    """Compare every quote to the best source using partial ratio and minimum evidence strength."""
+    if not claimed_quotes:
+        return False, [{"claimed_quote": "", "best_score": 0.0, "threshold": threshold, "reason": "no_citations"}]
     failed: list[dict[str, Any]] = []
     for quote in claimed_quotes:
         normalized_quote = _normalize_whitespace(quote)
         if not normalized_quote:
-            failed.append({"claimed_quote": quote, "best_score": 0.0, "threshold": threshold})
+            failed.append({"claimed_quote": quote, "best_score": 0.0, "threshold": threshold, "reason": "empty_quote"})
             continue
         scores = [
             (float(fuzz.partial_ratio(normalized_quote, _normalize_whitespace(source))), source)
@@ -56,14 +140,26 @@ def verify_citations(
                     "best_score": best_score,
                     "best_match_preview": best_match[:200],
                     "threshold": threshold,
+                    "reason": "citation_mismatch",
+                }
+            )
+            continue
+        is_weak, weak_reason = assess_quote_strength(
+            normalized_quote,
+            min_quote_chars=min_quote_chars,
+            min_quote_words=min_quote_words,
+        )
+        if is_weak:
+            failed.append(
+                {
+                    "claimed_quote": quote,
+                    "best_score": best_score,
+                    "threshold": threshold,
+                    "weak_evidence": True,
+                    "reason": weak_reason or "weak_quote",
                 }
             )
     return not failed, failed
-
-
-def _normalize_whitespace(value: str) -> str:
-    """Make line wrapping and OCR spacing deterministic without changing words."""
-    return re.sub(r"\s+", " ", value).strip()
 
 
 def verify_region_text(
@@ -93,7 +189,9 @@ def _probability(entry: dict[str, Any]) -> float:
 
 
 def verify_logprobs(
-    token_logprobs: list[dict[str, Any]], *, threshold: float = LOGPROB_THRESHOLD,
+    token_logprobs: list[dict[str, Any]],
+    *,
+    threshold: float = LOGPROB_THRESHOLD,
     critical_entity_types: frozenset[str] = CRITICAL_ENTITY_TYPES,
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Check probability (or natural-log probability) for critical entities."""
@@ -116,10 +214,22 @@ def verify_logprobs(
 
 
 def run_verification_gate(
-    claimed_quotes: list[str], source_texts: list[str], token_logprobs: list[dict[str, Any]] | None = None
+    claimed_quotes: list[str],
+    source_texts: list[str],
+    token_logprobs: list[dict[str, Any]] | None = None,
+    *,
+    threshold: float = CITATION_THRESHOLD,
+    min_quote_chars: int | None = None,
+    min_quote_words: int | None = None,
 ) -> VerificationResult:
-    """Run both deterministic checks; a single failure blocks prose synthesis."""
-    citations_passed, failed_citations = verify_citations(claimed_quotes, source_texts)
+    """Run deterministic citation, quote-strength, and logprob checks."""
+    citations_passed, failed_citations = verify_citations(
+        claimed_quotes,
+        source_texts,
+        threshold=threshold,
+        min_quote_chars=min_quote_chars,
+        min_quote_words=min_quote_words,
+    )
     logprob_entries = token_logprobs or []
     logprobs_passed, failed_logprobs = verify_logprobs(logprob_entries)
     citation_scores = [
@@ -130,18 +240,52 @@ def run_verification_gate(
         for quote in claimed_quotes
         if _normalize_whitespace(quote)
     ]
-    probabilities = [_probability(entry) for entry in logprob_entries if str(entry.get("entity_type", "")) in CRITICAL_ENTITY_TYPES]
+    probabilities = [
+        _probability(entry)
+        for entry in logprob_entries
+        if str(entry.get("entity_type", "")) in CRITICAL_ENTITY_TYPES
+    ]
+
+    weak_failures = [entry for entry in failed_citations if entry.get("weak_evidence")]
+    hard_citation_failures = [entry for entry in failed_citations if not entry.get("weak_evidence")]
     passed = citations_passed and logprobs_passed
+    only_weak_failure = (not citations_passed) and logprobs_passed and bool(weak_failures) and (not hard_citation_failures)
+
+    if passed:
+        status = VerificationStatus.VERIFIED
+        weak_evidence = False
+        weak_reason: str | None = None
+        quality = "strong"
+        priority_tier = PriorityTier.P2_MEDIUM
+        fluent_output: str | None = None
+    elif only_weak_failure:
+        status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        weak_evidence = True
+        weak_reason = "; ".join(str(entry.get("reason") or "weak_quote") for entry in weak_failures)
+        quality = "weak"
+        priority_tier = PriorityTier.P1_HIGH
+        fluent_output = f"Weak evidence flagged for human verification ({weak_reason})."
+    else:
+        status = VerificationStatus.INSUFFICIENT_EVIDENCE
+        weak_evidence = bool(weak_failures)
+        weak_reason = "; ".join(str(entry.get("reason") or "weak_quote") for entry in weak_failures) if weak_failures else None
+        quality = "weak" if (weak_evidence and not hard_citation_failures) else "missing"
+        priority_tier = PriorityTier.P0_CRITICAL
+        fluent_output = INSUFFICIENT_EVIDENCE_OUTPUT
+
     return VerificationResult(
         passed=passed,
-        verification_status=VerificationStatus.VERIFIED if passed else VerificationStatus.INSUFFICIENT_EVIDENCE,
+        verification_status=status,
         failed_citations=failed_citations,
         failed_logprobs=failed_logprobs,
         confidence_score=1.0 if passed else 0.0,
-        best_citation_score=min(citation_scores, default=100.0),
+        best_citation_score=min(citation_scores, default=0.0),
         best_logprob=min(probabilities, default=1.0),
-        priority_tier=PriorityTier.P2_MEDIUM if passed else PriorityTier.P0_CRITICAL,
-        fluent_output=None if passed else INSUFFICIENT_EVIDENCE_OUTPUT,
+        priority_tier=priority_tier,
+        fluent_output=fluent_output,
+        weak_evidence=weak_evidence,
+        weak_evidence_reason=weak_reason,
+        evidence_quality=quality,
     )
 
 
@@ -153,6 +297,9 @@ def hard_gate_fields(result: VerificationResult) -> dict[str, Any]:
         "verification_status": result.verification_status,
         "priority_tier": result.priority_tier,
         "fluent_output": result.fluent_output or INSUFFICIENT_EVIDENCE_OUTPUT,
+        "weak_evidence": result.weak_evidence,
+        "weak_evidence_reason": result.weak_evidence_reason,
+        "evidence_quality": result.evidence_quality,
     }
 
 

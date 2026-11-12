@@ -20,6 +20,18 @@ import {
   deriveNodeLocator,
   resolveCitationDocument,
 } from "../lib/evidenceLocators";
+import {
+  buildXlsxExportRows,
+  computeWorkItemMetrics,
+  filterWorkItemsForScope,
+  formatExportWarningLines,
+  getMatchBadgeTone,
+  itemMatchesDocumentFilter,
+  MANUAL_OVERRIDE_REASON_CODES,
+  NOT_APPLICABLE_REASON_CODES,
+  validateManualOverrideInput,
+  validateNotApplicableInput,
+} from "../lib/workItemMetrics";
 import { useBertStore } from "../store/useBertStore";
 
 const CATEGORY_COLORS: Record<string, { fill: string; text: string }> = {
@@ -41,6 +53,10 @@ export function ResultsPage() {
     nodesByDocument,
     workItems,
     workItemUndoSnapshots,
+    activeJob,
+    isSimulating,
+    hasCompletedRun,
+    backendAvailable,
     executiveSummary,
     summaryStatus,
     summaryError,
@@ -68,10 +84,30 @@ export function ResultsPage() {
   const [searchFilter, setSearchFilter] = useState("");
   const [inlineEditId, setInlineEditId] = useState<string | null>(null);
   const [inlineEditText, setInlineEditText] = useState("");
+  const [inlineReasonCode, setInlineReasonCode] = useState<string>(MANUAL_OVERRIDE_REASON_CODES[0].value);
+  const [inlineCitationText, setInlineCitationText] = useState("");
+  const [inlineNoEvidence, setInlineNoEvidence] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const [naActionId, setNaActionId] = useState<string | null>(null);
+  const [naReasonCode, setNaReasonCode] = useState<string>("");
+  const [naReasonNote, setNaReasonNote] = useState("");
+  const [naError, setNaError] = useState<string | null>(null);
   const [legalActionId, setLegalActionId] = useState<string | null>(null);
   const [legalReason, setLegalReason] = useState("Escalated to counsel from Results Report");
   const [legalAssignee, setLegalAssignee] = useState("Legal Counsel");
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
+  const [exportWarningOpen, setExportWarningOpen] = useState(false);
+
+  const isRunning =
+    isSimulating || activeJob?.status === "RUNNING" || activeJob?.status === "RESUMING";
+  const canExport = !isRunning && workItems.length > 0 && hasCompletedRun;
+  const exportDisabledReason = isRunning
+    ? "Review run in progress — export unlocks on completion"
+    : workItems.length === 0
+      ? "No corpus items to export"
+      : !hasCompletedRun
+        ? "Complete a review run before exporting"
+        : "Export answered questionnaire as .XLSX";
 
   useEffect(() => {
     if (searchParams.get("filter") === "escalations") {
@@ -93,61 +129,68 @@ export function ResultsPage() {
     void loadAuditLogs();
   }, [isAuditTab, loadAuditLogs]);
 
-  // Filtered dataset
+  // Filtered dataset using single-source-of-truth scope filter
   const filteredItems = useMemo(() => {
-    return workItems.filter((item) => {
-      if (selectedDocFilter !== "ALL" && item.document_id !== selectedDocFilter) {
-        return false;
-      }
-      if (
-        onlyCritical &&
-        item.priority_tier !== "P0_CRITICAL" &&
-        item.verification_status === "VERIFIED"
-      ) {
-        return false;
-      }
-      if (searchFilter.trim()) {
-        const q = searchFilter.toLowerCase();
-        const text =
-          `${item.prompt_or_question} ${item.fluent_output} ${item.category} ${item.verification_status} ${item.escalation_reason ?? ""} ${item.escalation_assignee ?? ""}`.toLowerCase();
-        if (!text.includes(q)) return false;
-      }
-      return true;
+    const scoped = filterWorkItemsForScope({
+      items: workItems,
+      documents,
+      documentId: selectedDocFilter === "ALL" ? null : selectedDocFilter,
+      onlyCritical,
+      latestOnly: enforceLatestVersion,
     });
-  }, [workItems, selectedDocFilter, onlyCritical, searchFilter]);
+    if (!searchFilter.trim()) return scoped;
+    const q = searchFilter.toLowerCase();
+    return scoped.filter((item) => {
+      const text =
+        `${item.prompt_or_question} ${item.fluent_output} ${item.category} ${item.verification_status} ${item.escalation_reason ?? ""} ${item.escalation_assignee ?? ""} ${item.human_override_reason_code ?? ""}`.toLowerCase();
+      return text.includes(q);
+    });
+  }, [workItems, documents, selectedDocFilter, onlyCritical, enforceLatestVersion, searchFilter]);
 
-  // Chart data aggregation with mutually exclusive caution buckets & count/confidence metric
+  const metrics = useMemo(() => computeWorkItemMetrics(filteredItems), [filteredItems]);
+  const corpusMetrics = useMemo(() => computeWorkItemMetrics(workItems), [workItems]);
+  const exportTargetMetrics = useMemo(
+    () => (selectedDocFilter === "ALL" && !onlyCritical && !searchFilter.trim() ? corpusMetrics : metrics),
+    [selectedDocFilter, onlyCritical, searchFilter, corpusMetrics, metrics]
+  );
+  const exportWarningLines = useMemo(
+    () => formatExportWarningLines(exportTargetMetrics),
+    [exportTargetMetrics]
+  );
+
+  // Chart data aggregation with strictly mutually exclusive caution buckets
   const chartData = useMemo(() => {
     const buildCautionSegments = (items: typeof filteredItems) => {
       const counts = {
-        "Verified Safe": 0,
-        "P1 High Review": 0,
-        "P0 Critical": 0,
-        "Human Verification Needed": 0,
-        "Legal Escalation": 0,
+        "Machine Verified": 0,
+        "Human Overridden": 0,
+        "Marked N/A": 0,
+        "Escalated Legal": 0,
+        "Critical Open": 0,
+        "Unresolved / Review": 0,
       };
       for (const item of items) {
-        if (item.verification_status === "ESCALATED_LEGAL") {
-          counts["Legal Escalation"] += 1;
-        } else if (
-          item.verification_status === "NEEDS_HUMAN_VERIFICATION" ||
-          item.verification_status === "INSUFFICIENT_EVIDENCE"
-        ) {
-          counts["Human Verification Needed"] += 1;
+        if (item.verification_status === "VERIFIED") {
+          counts["Machine Verified"] += 1;
+        } else if (item.verification_status === "HUMAN_OVERRIDE") {
+          counts["Human Overridden"] += 1;
+        } else if (item.verification_status === "NOT_APPLICABLE") {
+          counts["Marked N/A"] += 1;
+        } else if (item.verification_status === "ESCALATED_LEGAL") {
+          counts["Escalated Legal"] += 1;
         } else if (item.priority_tier === "P0_CRITICAL") {
-          counts["P0 Critical"] += 1;
-        } else if (item.priority_tier === "P1_HIGH") {
-          counts["P1 High Review"] += 1;
+          counts["Critical Open"] += 1;
         } else {
-          counts["Verified Safe"] += 1;
+          counts["Unresolved / Review"] += 1;
         }
       }
       const colors: Record<string, string> = {
-        "Verified Safe": "#10B981",
-        "P1 High Review": "#F59E0B",
-        "P0 Critical": "#EF4444",
-        "Human Verification Needed": "#EA580C",
-        "Legal Escalation": "#D97706",
+        "Machine Verified": "#10B981",
+        "Human Overridden": "#7C3AED",
+        "Marked N/A": "#64748B",
+        "Escalated Legal": "#D97706",
+        "Critical Open": "#EF4444",
+        "Unresolved / Review": "#F59E0B",
       };
       return Object.entries(counts)
         .filter(([, count]) => count > 0)
@@ -164,7 +207,7 @@ export function ResultsPage() {
       const docList =
         selectedDocFilter === "ALL" ? documents : documents.filter((d) => d.id === selectedDocFilter);
       return docList.map((doc) => {
-        const docItems = filteredItems.filter((item) => item.document_id === doc.id);
+        const docItems = filteredItems.filter((item) => itemMatchesDocumentFilter(item, doc.id));
         let segments: { key: string; color: string; count: number }[] = [];
 
         if (segmentedBy === "category") {
@@ -218,45 +261,66 @@ export function ResultsPage() {
   const maxChartValue =
     metricType === "confidence" ? 100 : Math.max(...chartData.map((d) => d.total), 4);
 
-  // Metrics: ESCALATED_LEGAL excluded from verified numerator while remaining in denominator
-  const totalFindings = filteredItems.length;
-  const verifiedCount = filteredItems.filter((i) => i.verification_status === "VERIFIED").length;
-  const escalatedLegalCount = filteredItems.filter(
-    (i) => i.verification_status === "ESCALATED_LEGAL"
-  ).length;
-  const criticalCount = filteredItems.filter(
-    (i) => i.priority_tier === "P0_CRITICAL" || i.verification_status !== "VERIFIED"
-  ).length;
-  const complianceRate = totalFindings > 0 ? Math.round((verifiedCount / totalFindings) * 100) : 0;
+  // Export functions (gated + pre-export warning confirmation + backend XLSX integration)
+  const performExportXlsx = async () => {
+    setExportWarningOpen(false);
+    const filename = `BERT_Compliance_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-  // Export functions
-  const handleExportXlsx = () => {
-    const dataToExport = filteredItems.map((item) => ({
-      "Priority Tier": item.original_priority_tier || item.priority_tier,
-      Category: item.category,
-      "Question or Clause": item.prompt_or_question,
-      "AI Response": item.fluent_output,
-      "AI Status": item.verification_status,
-      "Escalation Assignee": item.escalation_assignee ?? "",
-      "Escalation Reason": item.escalation_reason ?? "",
-      "Verbatim Quote (Ranger)":
-        item.verified_citations[0]?.quote || "No direct quote (flagged for review)",
-      "Match Score %": item.gate_telemetry.citation_match,
-      "Source Document": item.verified_citations[0]?.document_filename || "Corpus",
-      "Page / Row": item.verified_citations[0]?.page_number ?? "N/A",
-    }));
+    const useBackendDownload =
+      backendAvailable &&
+      selectedDocFilter === "ALL" &&
+      !onlyCritical &&
+      !searchFilter.trim();
 
+    if (useBackendDownload) {
+      try {
+        const blob = await bertApi.downloadQuestionnaireXlsx();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
+        setCopiedNotification("Exported audited compliance workbook (.XLSX)");
+        setTimeout(() => setCopiedNotification(null), 3000);
+        return;
+      } catch {
+        // Fallback cleanly to client-side SheetJS workbook with Phase 3 audit columns
+      }
+    }
+
+    const dataToExport = buildXlsxExportRows(filteredItems, documents);
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "BERT_Verified_Findings");
-    XLSX.writeFile(
-      workbook,
-      `BERT_Compliance_Report_${new Date().toISOString().slice(0, 10)}.xlsx`
-    );
+    XLSX.writeFile(workbook, filename);
 
-    setCopiedNotification("Exported verified answers & legal columns as .XLSX");
+    setCopiedNotification("Exported audited compliance workbook (.XLSX)");
     setTimeout(() => setCopiedNotification(null), 3000);
   };
+
+  const handleRequestExportXlsx = () => {
+    if (!canExport) return;
+    if (exportTargetMetrics.exportWarnings.hasAnyWarning) {
+      setExportWarningOpen(true);
+      return;
+    }
+    void performExportXlsx();
+  };
+
+  useEffect(() => {
+    if (searchParams.get("export") === "1" && canExport) {
+      if (exportTargetMetrics.exportWarnings.hasAnyWarning) {
+        setExportWarningOpen(true);
+      } else {
+        void performExportXlsx();
+      }
+      const next = new URLSearchParams(searchParams);
+      next.delete("export");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canExport, searchParams]);
 
   const handleDownloadSummary = async () => {
     const queryParams = {
@@ -296,13 +360,60 @@ export function ResultsPage() {
   };
 
   const handleInlineResolve = async (id: string) => {
-    if (!inlineEditText.trim()) return;
-    await resolveWorkItem(id, {
-      action: "manual_correction",
-      correction: inlineEditText.trim(),
+    const targetItem = workItems.find((w) => w.id === id);
+    const hasExistingLocator = Boolean(
+      targetItem?.verified_citations?.some((c) => Boolean(c.locator || c.bounding_box || c.quote))
+    );
+    const check = validateManualOverrideInput({
+      correction: inlineEditText,
+      reasonCode: inlineReasonCode,
+      overrideCitationText: inlineCitationText,
+      noEvidenceAttestation: inlineNoEvidence,
+      hasExistingLocator,
     });
-    setInlineEditId(null);
-    setInlineEditText("");
+    if (!check.valid) {
+      setInlineError(check.message || "Invalid override submission.");
+      return;
+    }
+    setInlineError(null);
+    try {
+      await resolveWorkItem(id, {
+        action: "manual_correction",
+        correction: inlineEditText.trim(),
+        reason_code: inlineReasonCode,
+        override_citation_text: inlineCitationText.trim() || null,
+        no_evidence_attestation: inlineNoEvidence,
+      });
+      setInlineEditId(null);
+      setInlineEditText("");
+      setInlineCitationText("");
+      setInlineNoEvidence(false);
+    } catch (err) {
+      setInlineError(err instanceof Error ? err.message : "Failed to save override.");
+    }
+  };
+
+  const handleConfirmNotApplicable = async (id: string) => {
+    const check = validateNotApplicableInput({
+      reasonCode: naReasonCode,
+      note: naReasonNote,
+    });
+    if (!check.valid) {
+      setNaError(check.message || "Reason is required to mark N/A.");
+      return;
+    }
+    setNaError(null);
+    try {
+      await resolveWorkItem(id, {
+        action: "skip",
+        reason_code: naReasonCode,
+        note: naReasonNote.trim(),
+      });
+      setNaActionId(null);
+      setNaReasonNote("");
+    } catch (err) {
+      setNaError(err instanceof Error ? err.message : "Failed to mark N/A.");
+    }
   };
 
   const handleConfirmLegalFlag = async (id: string) => {
@@ -372,6 +483,11 @@ export function ResultsPage() {
               setSelectedDocFilter("ALL");
               setOnlyCritical(false);
               setSearchFilter("");
+              setInlineEditId(null);
+              setInlineError(null);
+              setNaActionId(null);
+              setNaError(null);
+              setLegalActionId(null);
               const next = new URLSearchParams(searchParams);
               next.delete("filter");
               setSearchParams(next);
@@ -383,10 +499,17 @@ export function ResultsPage() {
 
           <button
             type="button"
-            onClick={handleExportXlsx}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-xs font-medium text-zinc-800 shadow-2xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            data-testid="results-export-xlsx-btn"
+            disabled={!canExport}
+            title={exportDisabledReason}
+            onClick={handleRequestExportXlsx}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              canExport
+                ? "border-zinc-300 hover:bg-zinc-50 text-zinc-800 cursor-pointer"
+                : "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed opacity-75"
+            }`}
           >
-            <FileSpreadsheet size={14} className="text-emerald-700" />
+            <FileSpreadsheet size={14} className={canExport ? "text-emerald-700" : "text-zinc-500"} />
             <span>Export Answered .XLSX</span>
           </button>
 
@@ -564,14 +687,44 @@ export function ResultsPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {escalatedLegalCount > 0 && (
-                      <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950">
-                        {escalatedLegalCount} Escalated Legal
-                      </span>
-                    )}
-                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-800">
-                      {(executiveSummary?.defensibility_score ?? complianceRate)}% Defensibility Score
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      data-testid="metrics-machine-verified"
+                      className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950"
+                    >
+                      {metrics.machineVerified} Machine Verified
+                    </span>
+                    <span
+                      data-testid="metrics-human-override"
+                      className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-purple-100 border border-purple-300 text-purple-950"
+                    >
+                      {metrics.humanOverride} Human Overridden
+                    </span>
+                    <span
+                      data-testid="metrics-escalated-legal"
+                      className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950"
+                    >
+                      {metrics.escalatedLegal} Escalated Legal
+                    </span>
+                    <span
+                      data-testid="metrics-not-applicable"
+                      className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-900"
+                    >
+                      {metrics.notApplicable} Marked N/A
+                    </span>
+                    <span
+                      data-testid="metrics-unresolved"
+                      className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-950"
+                    >
+                      {metrics.unresolved} Unresolved
+                    </span>
+                    <span
+                      data-testid="metrics-defensibility-score"
+                      className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-900"
+                    >
+                      {metrics.total === 0
+                        ? "N/A Defensibility Score"
+                        : `${executiveSummary?.defensibility_score ?? metrics.defensibilityScore ?? 0}% Defensibility Score`}
                     </span>
                     <button
                       type="button"
@@ -616,7 +769,7 @@ export function ResultsPage() {
                       Retry
                     </button>
                   </div>
-                ) : totalFindings === 0 || (executiveSummary && executiveSummary.total_work_items === 0) ? (
+                ) : metrics.total === 0 || (executiveSummary && executiveSummary.total_work_items === 0) ? (
                   <p
                     data-testid="summary-empty-state"
                     className="text-zinc-800 text-sm leading-relaxed font-serif"
@@ -652,7 +805,7 @@ export function ResultsPage() {
                     </span>
                   </div>
                   <span className="text-xs font-mono text-zinc-700 font-medium">
-                    Total: {totalFindings} findings
+                    Total: {metrics.total} findings
                   </span>
                 </div>
 
@@ -732,7 +885,7 @@ export function ResultsPage() {
                       Contributing Findings & Verbatim Evidence Table
                     </h3>
                     <span className="text-[11px] text-zinc-600 font-mono">
-                      {filteredItems.length} records active in this view ({verifiedCount} verified, {criticalCount} attention, {escalatedLegalCount} legal)
+                      {metrics.total} records active ({metrics.machineVerified} machine verified, {metrics.humanOverride} override, {metrics.escalatedLegal} legal, {metrics.notApplicable} n/a, {metrics.unresolved} unresolved)
                     </span>
                   </div>
 
@@ -769,39 +922,43 @@ export function ResultsPage() {
                       </thead>
                       <tbody className="divide-y divide-zinc-200/70">
                         {filteredItems.map((item) => {
-                          const displayPriority = item.original_priority_tier || item.priority_tier;
-                          const isCritical = displayPriority === "P0_CRITICAL";
-                          const isHigh = displayPriority === "P1_HIGH";
+                          const currentPriority = item.priority_tier;
+                          const originalPriority = item.original_priority_tier || item.priority_tier;
+                          const isCritical = currentPriority === "P0_CRITICAL";
+                          const isHigh = currentPriority === "P1_HIGH";
                           const isLegal = item.verification_status === "ESCALATED_LEGAL";
-                          const citation = item.verified_citations[0];
-                          const citDoc = resolveCitationDocument(documents, {
-                            locator: citation?.locator,
-                            documentFilename: citation?.document_filename,
-                            fallbackDocumentId: item.document_id,
-                          });
-                          const matchedNode = citDoc
-                            ? nodesByDocument[citDoc.id]?.find((n) => n.id === citation?.ast_node_id)
-                            : undefined;
-                          const resolvedLocator =
-                            citation?.locator ?? deriveNodeLocator(matchedNode, citDoc);
+                          const isOverride = item.verification_status === "HUMAN_OVERRIDE";
+                          const isNotApplicable = item.verification_status === "NOT_APPLICABLE";
+                          const matchScore = item.gate_telemetry?.citation_match ?? 0;
+                          const matchTone = getMatchBadgeTone(
+                            matchScore,
+                            item.verification_status,
+                            item.weak_evidence
+                          );
                           const canUndo = Boolean(item.can_undo || workItemUndoSnapshots[item.id]);
 
                           return (
                             <tr
                               key={item.id}
+                              data-testid={`results-row-${item.id}`}
                               className={`hover:bg-zinc-50/70 transition-colors ${
                                 isLegal
                                   ? "bg-amber-50/50"
-                                  : isCritical
-                                    ? "bg-rose-50/35"
-                                    : isHigh
-                                      ? "bg-amber-50/20"
-                                      : ""
+                                  : isOverride
+                                    ? "bg-purple-50/35"
+                                    : isNotApplicable
+                                      ? "bg-slate-50/50"
+                                      : isCritical
+                                        ? "bg-rose-50/35"
+                                        : isHigh
+                                          ? "bg-amber-50/20"
+                                          : ""
                               }`}
                             >
                               {/* Priority & Verification Status */}
                               <td className="py-3 px-3 whitespace-nowrap space-y-1">
                                 <span
+                                  data-testid={`row-priority-${item.id}`}
                                   className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded block w-fit ${
                                     isCritical
                                       ? "bg-rose-100 text-rose-900 border border-rose-200"
@@ -810,19 +967,39 @@ export function ResultsPage() {
                                         : "bg-emerald-100 text-emerald-900 border border-emerald-200"
                                   }`}
                                 >
-                                  {displayPriority}
+                                  {currentPriority}
                                 </span>
                                 <span
+                                  data-testid={`row-original-priority-${item.id}`}
+                                  className="font-mono text-[9px] text-zinc-600 block w-fit"
+                                >
+                                  Original: {originalPriority}
+                                </span>
+                                <span
+                                  data-testid={`row-status-${item.id}`}
                                   className={`font-mono text-[10px] px-1.5 py-0.5 rounded block w-fit font-semibold ${
                                     isLegal
                                       ? "bg-amber-200/80 text-amber-950 border border-amber-300"
-                                      : item.verification_status === "VERIFIED"
-                                        ? "text-emerald-800"
-                                        : "text-rose-800"
+                                      : isOverride
+                                        ? "bg-purple-100 text-purple-950 border border-purple-300"
+                                        : isNotApplicable
+                                          ? "bg-slate-200 text-slate-900 border border-slate-300"
+                                          : item.verification_status === "VERIFIED"
+                                            ? "bg-emerald-100 text-emerald-950 border border-emerald-300"
+                                            : "bg-rose-100 text-rose-950 border border-rose-300"
                                   }`}
                                 >
-                                  {item.verification_status}
+                                  {isOverride ? "Human Override" : item.verification_status}
                                 </span>
+                                {item.weak_evidence && (
+                                  <span
+                                    data-testid="weak-evidence-badge"
+                                    title={item.weak_evidence_reason || "Quote below specificity threshold"}
+                                    className="font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded block w-fit bg-amber-100 text-amber-950 border border-amber-300"
+                                  >
+                                    Weak Evidence
+                                  </span>
+                                )}
                               </td>
 
                               {/* Category */}
@@ -837,24 +1014,146 @@ export function ResultsPage() {
                                 </div>
                               </td>
 
-                              {/* Fluent Answer + Legal Reason */}
-                              <td className="py-3 px-3 text-zinc-800 max-w-64 space-y-1">
+                              {/* Fluent Answer + Inline Editors */}
+                              <td className="py-3 px-3 text-zinc-800 max-w-72 space-y-1">
                                 {inlineEditId === item.id ? (
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="space-y-1.5 p-2 rounded-lg bg-purple-50 border border-purple-200">
+                                    <select
+                                      aria-label={`Override reason code for ${item.prompt_or_question}`}
+                                      value={inlineReasonCode}
+                                      onChange={(e) => {
+                                        setInlineReasonCode(e.target.value);
+                                        setInlineError(null);
+                                      }}
+                                      className="w-full px-2 py-1 rounded border border-purple-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    >
+                                      {MANUAL_OVERRIDE_REASON_CODES.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
                                     <input
                                       type="text"
                                       aria-label={`Edit answer for ${item.prompt_or_question}`}
                                       value={inlineEditText}
-                                      onChange={(e) => setInlineEditText(e.target.value)}
-                                      className="px-2 py-1 rounded border border-blue-500 bg-white text-xs w-full text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      onChange={(e) => {
+                                        setInlineEditText(e.target.value);
+                                        setInlineError(null);
+                                      }}
+                                      placeholder="Substantive answer (>=12 chars, >=3 words)"
+                                      className="px-2 py-1 rounded border border-purple-300 bg-white text-xs w-full text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleInlineResolve(item.id)}
-                                      className="px-2 py-1 bg-[#1D4ED8] text-white rounded text-[11px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    <input
+                                      type="text"
+                                      aria-label="Override citation or locator reference"
+                                      value={inlineCitationText}
+                                      onChange={(e) => {
+                                        setInlineCitationText(e.target.value);
+                                        setInlineError(null);
+                                      }}
+                                      placeholder="Citation / locator (optional if attesting)"
+                                      className="px-2 py-1 rounded border border-purple-300 bg-white text-[11px] w-full text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    />
+                                    <label className="flex items-center gap-1.5 text-[11px] text-zinc-900 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        aria-label="No evidence — reviewer attests"
+                                        checked={inlineNoEvidence}
+                                        onChange={(e) => {
+                                          setInlineNoEvidence(e.target.checked);
+                                          setInlineError(null);
+                                        }}
+                                        className="rounded border-zinc-400 text-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      />
+                                      <span>No evidence — reviewer attests</span>
+                                    </label>
+                                    {inlineError && (
+                                      <div
+                                        role="alert"
+                                        data-testid="results-override-error"
+                                        className="text-[10px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded px-2 py-1"
+                                      >
+                                        {inlineError}
+                                      </div>
+                                    )}
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleInlineResolve(item.id)}
+                                        className="px-2 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded text-[11px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      >
+                                        Save Override
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setInlineEditId(null);
+                                          setInlineError(null);
+                                        }}
+                                        className="px-2 py-1 bg-zinc-200 text-zinc-900 rounded text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : naActionId === item.id ? (
+                                  <div className="space-y-1.5 p-2 rounded-lg bg-slate-50 border border-slate-300">
+                                    <select
+                                      aria-label={`Not applicable reason code for ${item.prompt_or_question}`}
+                                      value={naReasonCode}
+                                      onChange={(e) => {
+                                        setNaReasonCode(e.target.value);
+                                        setNaError(null);
+                                      }}
+                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                                     >
-                                      Save
-                                    </button>
+                                      <option value="">Select N/A reason code…</option>
+                                      {NOT_APPLICABLE_REASON_CODES.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      type="text"
+                                      aria-label="Not applicable rationale"
+                                      value={naReasonNote}
+                                      onChange={(e) => {
+                                        setNaReasonNote(e.target.value);
+                                        setNaError(null);
+                                      }}
+                                      placeholder="Required reason for marking N/A..."
+                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    />
+                                    {naError && (
+                                      <div
+                                        role="alert"
+                                        data-testid="results-na-error"
+                                        className="text-[10px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded px-2 py-1"
+                                      >
+                                        {naError}
+                                      </div>
+                                    )}
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleConfirmNotApplicable(item.id)}
+                                        className="px-2 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-[10px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      >
+                                        Confirm N/A
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setNaActionId(null);
+                                          setNaError(null);
+                                        }}
+                                        className="px-2 py-1 bg-zinc-200 text-zinc-900 rounded text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
                                   </div>
                                 ) : legalActionId === item.id ? (
                                   <div className="space-y-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200">
@@ -902,59 +1201,85 @@ export function ResultsPage() {
                                         {item.escalation_reason ? `: ${item.escalation_reason}` : ""}
                                       </div>
                                     )}
+                                    {(isOverride || isNotApplicable) && item.human_override_reason_code && (
+                                      <div className="text-[10px] font-mono text-purple-950">
+                                        Reason: {item.human_override_reason_code}
+                                        {item.no_evidence_attestation ? " · No evidence attested" : ""}
+                                      </div>
+                                    )}
                                   </>
                                 )}
                               </td>
 
-                              {/* Exact Verbatim Quote + EvidenceLocatorBadge */}
+                              {/* Exact Verbatim Quote(s) + EvidenceLocatorBadge (renders ALL locators incl. Chronos dual-locator) */}
                               {showExactQuotes && (
-                                <td className="py-3 px-3 text-zinc-700 max-w-56 space-y-1">
-                                  {citation?.quote ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          inspectCitation({
-                                            ...citation,
-                                            locator: resolvedLocator,
-                                            bounding_box:
-                                              citation.bounding_box ?? matchedNode?.bounding_box ?? null,
-                                            confidence_score: item.gate_telemetry.citation_match,
-                                            document_filename:
-                                              citation.document_filename || citDoc?.filename || "",
-                                          });
-                                        }}
-                                        className="block max-w-full truncate font-mono text-[11px] text-blue-700 cursor-pointer hover:underline text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
-                                        title={citation.quote}
-                                      >
-                                        “{citation.quote}”
-                                      </button>
-                                      <EvidenceLocatorBadge
-                                        locator={resolvedLocator}
-                                        document={citDoc}
-                                        fallbackPage={citation.page_number}
-                                        fallbackBbox={citation.bounding_box ?? matchedNode?.bounding_box}
-                                        regionMatchScore={citation.region_match_score}
-                                        context={`results-row:${item.id}`}
-                                      />
-                                    </>
+                                <td className="py-3 px-3 text-zinc-700 max-w-60 space-y-1.5">
+                                  {item.verified_citations.length > 0 ? (
+                                    item.verified_citations.map((citation, citIdx) => {
+                                      const citDoc = resolveCitationDocument(documents, {
+                                        locator: citation.locator,
+                                        documentFilename: citation.document_filename,
+                                        fallbackDocumentId: item.document_id,
+                                      });
+                                      const matchedNode = citDoc
+                                        ? nodesByDocument[citDoc.id]?.find((n) => n.id === citation.ast_node_id)
+                                        : undefined;
+                                      const resolvedLocator =
+                                        citation.locator ?? deriveNodeLocator(matchedNode, citDoc);
+                                      return (
+                                        <div key={`${item.id}-cit-${citIdx}`} className="space-y-0.5">
+                                          <button
+                                            type="button"
+                                            data-testid={
+                                              item.item_type === "TEMPORAL_CONFLICT"
+                                                ? `chronos-table-locator-${citIdx}`
+                                                : undefined
+                                            }
+                                            onClick={() => {
+                                              inspectCitation({
+                                                ...citation,
+                                                locator: resolvedLocator,
+                                                bounding_box:
+                                                  citation.bounding_box ?? matchedNode?.bounding_box ?? null,
+                                                confidence_score: matchScore,
+                                                document_filename:
+                                                  citation.document_filename || citDoc?.filename || "",
+                                              });
+                                            }}
+                                            className="block max-w-full truncate font-mono text-[11px] text-blue-700 cursor-pointer hover:underline text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                                            title={citation.quote}
+                                          >
+                                            “{citation.quote}”
+                                          </button>
+                                          <EvidenceLocatorBadge
+                                            locator={resolvedLocator}
+                                            document={citDoc}
+                                            fallbackPage={citation.page_number}
+                                            fallbackBbox={citation.bounding_box ?? matchedNode?.bounding_box}
+                                            regionMatchScore={citation.region_match_score}
+                                            context={`results-row:${item.id}:${citIdx}`}
+                                          />
+                                        </div>
+                                      );
+                                    })
                                   ) : (
                                     <span className="font-mono text-[10px] text-rose-800 font-semibold">
-                                      Missing Proof
+                                      {item.no_evidence_attestation ? "No evidence attested" : "Missing Proof"}
                                     </span>
                                   )}
                                 </td>
                               )}
 
-                              {/* Match % */}
+                              {/* Match % (strict getMatchBadgeTone coloring — never green below 97% or on override!) */}
                               <td className="py-3 px-3 whitespace-nowrap font-mono font-bold">
-                                {item.gate_telemetry.citation_match > 0 ? (
-                                  <span className="text-emerald-800">
-                                    {item.gate_telemetry.citation_match}%
-                                  </span>
-                                ) : (
-                                  <span className="text-rose-800">0%</span>
-                                )}
+                                <span
+                                  data-testid={`row-match-${item.id}`}
+                                  className={`inline-block px-2 py-0.5 rounded text-[11px] ${matchTone.badgeClass}`}
+                                >
+                                  {isOverride
+                                    ? `${Math.round(matchScore)}% · Unverified by gate`
+                                    : `${Math.round(matchScore)}%`}
+                                </span>
                               </td>
 
                               {/* Resolution Actions */}
@@ -965,16 +1290,44 @@ export function ResultsPage() {
                                     onClick={() => {
                                       setInlineEditId(item.id);
                                       setInlineEditText(item.fluent_output);
+                                      setInlineCitationText(
+                                        item.gate_telemetry?.override_citation_text || ""
+                                      );
+                                      setInlineNoEvidence(Boolean(item.no_evidence_attestation));
+                                      setInlineError(null);
+                                      setNaActionId(null);
+                                      setLegalActionId(null);
                                     }}
-                                    className="px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    className="px-2 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                                   >
-                                    Edit
+                                    Override
                                   </button>
+
+                                  {!isNotApplicable && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setNaActionId(item.id);
+                                        setNaReasonCode("");
+                                        setNaReasonNote("");
+                                        setNaError(null);
+                                        setInlineEditId(null);
+                                        setLegalActionId(null);
+                                      }}
+                                      className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-900 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    >
+                                      Mark N/A
+                                    </button>
+                                  )}
 
                                   {!isLegal && (
                                     <button
                                       type="button"
-                                      onClick={() => setLegalActionId(item.id)}
+                                      onClick={() => {
+                                        setLegalActionId(item.id);
+                                        setInlineEditId(null);
+                                        setNaActionId(null);
+                                      }}
                                       className="px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                                     >
                                       Legal
@@ -1165,6 +1518,81 @@ export function ResultsPage() {
           </div>
         </aside>
       </div>
+
+      {/* Pre-Export Audit Warning Confirmation Modal */}
+      {exportWarningOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-warning-title"
+          data-testid="export-warning-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4"
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-white border border-zinc-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={18} />
+                </span>
+                <div>
+                  <h2
+                    id="export-warning-title"
+                    className="text-sm font-bold text-zinc-950 font-ui"
+                  >
+                    Export Includes Non-Machine-Verified Items
+                  </h2>
+                  <p className="text-xs text-zinc-700 mt-0.5">
+                    Review the unverified / overridden / N/A counts stamped into the exported .XLSX audit columns before continuing.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close export warning modal"
+                onClick={() => setExportWarningOpen(false)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-700 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+              {exportWarningLines.map((line, idx) => (
+                <div key={idx} className="text-xs font-mono font-medium text-amber-950">
+                  • {line}
+                </div>
+              ))}
+            </div>
+
+            <div className="text-[11px] text-zinc-700">
+              Exported rows include <span className="font-mono font-semibold">AI_Status</span>,{" "}
+              <span className="font-mono font-semibold">Original_Priority</span>,{" "}
+              <span className="font-mono font-semibold">Review_Warning</span>,{" "}
+              <span className="font-mono font-semibold">Reason_Code</span>, and{" "}
+              <span className="font-mono font-semibold">Weak_Evidence</span> columns.
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200">
+              <button
+                type="button"
+                data-testid="export-warning-cancel"
+                onClick={() => setExportWarningOpen(false)}
+                className="px-3.5 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              >
+                Cancel Export
+              </button>
+              <button
+                type="button"
+                data-testid="export-warning-confirm"
+                onClick={() => void performExportXlsx()}
+                className="px-4 py-2 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+              >
+                Confirm Export .XLSX
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

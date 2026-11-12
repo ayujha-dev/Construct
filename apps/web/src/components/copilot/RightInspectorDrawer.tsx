@@ -14,6 +14,11 @@ import {
   inferSourceChip,
   resolveCitationDocument,
 } from "../../lib/evidenceLocators";
+import {
+  assessQuoteStrength,
+  getMatchBadgeTone,
+  itemMatchesDocumentFilter,
+} from "../../lib/workItemMetrics";
 import { useBertStore, type ActiveInspectorTab } from "../../store/useBertStore";
 import { CorpusFilterBanner } from "./CorpusFilterBanner";
 import { EvidenceLocatorBadge } from "./EvidenceLocatorBadge";
@@ -22,7 +27,17 @@ import { PdfViewer } from "./PdfViewer";
 import { SpreadsheetViewer } from "./SpreadsheetViewer";
 import { TextEvidenceViewer } from "./TextEvidenceViewer";
 
-type FilterPill = "All" | "P0 Critical" | "P1 Review" | "Verified" | "Legal" | "Tables" | "JSON Rules";
+type FilterPill =
+  | "All"
+  | "P0 Critical"
+  | "P1 Review"
+  | "Verified"
+  | "Overrides"
+  | "N/A"
+  | "Legal"
+  | "Weak"
+  | "Tables"
+  | "JSON Rules";
 
 const INSPECTOR_TABS: { id: ActiveInspectorTab; label: string }[] = [
   { id: "quotes", label: "Verified Quotes" },
@@ -77,17 +92,30 @@ export function RightInspectorDrawer({
   const filteredWorkItems = useMemo(() => {
     return workItems.filter((item) => {
       if (selectedFileFilterId) {
-        if (item.document_id !== selectedFileFilterId) return false;
-      } else if (selectedDocumentId && item.document_id && item.document_id !== selectedDocumentId) {
-        if (workItems.some((w) => w.document_id === selectedDocumentId)) {
+        if (!itemMatchesDocumentFilter(item, selectedFileFilterId)) return false;
+      } else if (
+        selectedDocumentId &&
+        !itemMatchesDocumentFilter(item, selectedDocumentId)
+      ) {
+        if (workItems.some((w) => itemMatchesDocumentFilter(w, selectedDocumentId))) {
           return false;
         }
       }
 
+      const isWeak =
+        Boolean(item.weak_evidence) ||
+        Boolean(
+          item.verified_citations[0]?.quote &&
+            assessQuoteStrength(item.verified_citations[0].quote).isWeak
+        );
+
       if (activeFilter === "P0 Critical" && item.priority_tier !== "P0_CRITICAL") return false;
       if (activeFilter === "P1 Review" && item.priority_tier !== "P1_HIGH") return false;
       if (activeFilter === "Verified" && item.verification_status !== "VERIFIED") return false;
+      if (activeFilter === "Overrides" && item.verification_status !== "HUMAN_OVERRIDE") return false;
+      if (activeFilter === "N/A" && item.verification_status !== "NOT_APPLICABLE") return false;
       if (activeFilter === "Legal" && item.verification_status !== "ESCALATED_LEGAL") return false;
+      if (activeFilter === "Weak" && !isWeak) return false;
       if (
         activeFilter === "Tables" &&
         !item.prompt_or_question.toLowerCase().includes("row") &&
@@ -117,7 +145,9 @@ export function RightInspectorDrawer({
   // Findings with citations shown on the Hashes/Audit tab for direct jump-to-evidence
   const auditFindings = useMemo(() => {
     return workItems.filter((item) => {
-      if (selectedFileFilterId && item.document_id !== selectedFileFilterId) return false;
+      if (selectedFileFilterId && !itemMatchesDocumentFilter(item, selectedFileFilterId)) {
+        return false;
+      }
       return item.verified_citations.length > 0;
     });
   }, [workItems, selectedFileFilterId]);
@@ -260,22 +290,33 @@ export function RightInspectorDrawer({
             </div>
 
             <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[11px] no-scrollbar">
-              {(["All", "P0 Critical", "P1 Review", "Verified", "Legal", "Tables", "JSON Rules"] as FilterPill[]).map(
-                (pill) => (
-                  <button
-                    key={pill}
-                    type="button"
-                    onClick={() => setActiveFilter(pill)}
-                    className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-                      activeFilter === pill
-                        ? "bg-[#18181B] text-white font-medium"
-                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
-                    }`}
-                  >
-                    {pill}
-                  </button>
-                )
-              )}
+              {(
+                [
+                  "All",
+                  "P0 Critical",
+                  "P1 Review",
+                  "Verified",
+                  "Overrides",
+                  "N/A",
+                  "Legal",
+                  "Weak",
+                  "Tables",
+                  "JSON Rules",
+                ] as FilterPill[]
+              ).map((pill) => (
+                <button
+                  key={pill}
+                  type="button"
+                  onClick={() => setActiveFilter(pill)}
+                  className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                    activeFilter === pill
+                      ? "bg-[#18181B] text-white font-medium"
+                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                  }`}
+                >
+                  {pill}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -294,7 +335,15 @@ export function RightInspectorDrawer({
               const isP0 = item.priority_tier === "P0_CRITICAL";
               const isP1 = item.priority_tier === "P1_HIGH";
               const isLegal = item.verification_status === "ESCALATED_LEGAL";
+              const isOverride = item.verification_status === "HUMAN_OVERRIDE";
+              const isNA = item.verification_status === "NOT_APPLICABLE";
+              const quoteStrength = citation?.quote
+                ? assessQuoteStrength(citation.quote)
+                : { isWeak: false, reason: null };
+              const isWeak = Boolean(item.weak_evidence || quoteStrength.isWeak);
               const matchScore = item.gate_telemetry.citation_match;
+              const matchTone = getMatchBadgeTone(matchScore, item.verification_status, isWeak);
+
               const targetDoc =
                 resolveCitationDocument(documents, {
                   locator: citation?.locator,
@@ -341,13 +390,17 @@ export function RightInspectorDrawer({
                     }
                   }}
                   className={`p-3.5 rounded-xl border text-xs space-y-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-                    isLegal
-                      ? "bg-amber-50/70 border-amber-300 hover:border-amber-500 shadow-2xs"
-                      : isP0
-                        ? "bg-[#FEF2F2] border-[#FECACA] hover:border-red-400 shadow-2xs"
-                        : isP1
-                          ? "bg-[#FFFBEB] border-[#FDE68A] hover:border-amber-400 shadow-2xs"
-                          : "bg-white border-zinc-200/90 hover:border-blue-400 shadow-2xs"
+                    isOverride
+                      ? "bg-purple-50/70 border-purple-300 hover:border-purple-500 shadow-2xs"
+                      : isNA
+                        ? "bg-slate-50 border-slate-300 hover:border-slate-500 shadow-2xs"
+                        : isLegal
+                          ? "bg-amber-50/70 border-amber-300 hover:border-amber-500 shadow-2xs"
+                          : isP0
+                            ? "bg-[#FEF2F2] border-[#FECACA] hover:border-red-400 shadow-2xs"
+                            : isP1
+                              ? "bg-[#FFFBEB] border-[#FDE68A] hover:border-amber-400 shadow-2xs"
+                              : "bg-white border-zinc-200/90 hover:border-blue-400 shadow-2xs"
                   }`}
                 >
                   {/* Card Header */}
@@ -355,39 +408,92 @@ export function RightInspectorDrawer({
                     <span className="font-mono text-zinc-700 font-medium truncate">
                       {citation?.page_number ? `Page ${citation.page_number}` : item.category}
                     </span>
-                    <span
-                      className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                        item.verification_status === "VERIFIED"
-                          ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
-                          : isLegal
-                            ? "bg-amber-100 text-amber-900 border border-amber-300"
-                            : "bg-rose-100 text-rose-900 border border-rose-200"
-                      }`}
-                    >
-                      {item.verification_status === "VERIFIED"
-                        ? `${matchScore.toFixed(1)}% Match`
-                        : isLegal
-                          ? `LEGAL ESCALATED (${item.priority_tier})`
-                          : "ACTION NEEDED"}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isWeak && (
+                        <span
+                          data-testid="weak-evidence-badge"
+                          title={item.weak_evidence_reason || quoteStrength.reason || "Weak quote"}
+                          className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300"
+                        >
+                          Weak Evidence
+                        </span>
+                      )}
+                      <span
+                        className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border ${matchTone.badgeClass}`}
+                      >
+                        {item.verification_status === "VERIFIED"
+                          ? `${matchScore.toFixed(1)}% Match`
+                          : isOverride
+                            ? "Human Override"
+                            : isNA
+                              ? `Marked N/A (${item.priority_tier})`
+                              : isLegal
+                                ? `LEGAL ESCALATED (${item.priority_tier})`
+                                : `ACTION NEEDED (${Math.round(matchScore)}%)`}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Evidence Locator Chip + Path/Coordinates */}
-                  <EvidenceLocatorBadge
-                    locator={resolvedLocator}
-                    document={targetDoc}
-                    fallbackPage={citation?.page_number}
-                    fallbackBbox={resolvedBbox}
-                    regionMatchScore={citation?.region_match_score}
-                    context={`inspector-quote:${item.id}`}
-                  />
+                  {item.verified_citations.length > 1 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.verified_citations.map((citItem, citIdx) => {
+                        const citDoc = resolveCitationDocument(documents, {
+                          locator: citItem.locator,
+                          documentFilename: citItem.document_filename,
+                          fallbackDocumentId: item.document_id,
+                          fallbackDoc: currentDoc,
+                        });
+                        const citNode = citDoc
+                          ? nodesByDocument[citDoc.id]?.find((n) => n.id === citItem.ast_node_id)
+                          : undefined;
+                        const citLoc = citItem.locator ?? deriveNodeLocator(citNode, citDoc);
+                        return (
+                          <button
+                            key={`${item.id}-cit-${citIdx}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              inspectCitation({
+                                ...citItem,
+                                locator: citLoc,
+                                bounding_box: citItem.bounding_box ?? citNode?.bounding_box ?? null,
+                                confidence_score:
+                                  citItem.confidence_score ?? item.gate_telemetry.citation_match ?? 0,
+                                document_filename: citItem.document_filename || citDoc?.filename || "",
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 cursor-pointer"
+                          >
+                            <EvidenceLocatorBadge
+                              locator={citLoc}
+                              document={citDoc}
+                              fallbackPage={citItem.page_number}
+                              fallbackBbox={citItem.bounding_box ?? citNode?.bounding_box}
+                              regionMatchScore={citItem.region_match_score}
+                              context={`inspector-quote:${item.id}:${citIdx}`}
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <EvidenceLocatorBadge
+                      locator={resolvedLocator}
+                      document={targetDoc}
+                      fallbackPage={citation?.page_number}
+                      fallbackBbox={resolvedBbox}
+                      regionMatchScore={citation?.region_match_score}
+                      context={`inspector-quote:${item.id}`}
+                    />
+                  )}
 
                   {/* Question / Clause Name */}
                   <div className="font-semibold text-zinc-900 leading-snug">
                     {item.prompt_or_question}
                   </div>
 
-                  {/* Legal escalation detail */}
+                  {/* Legal / Override / N/A detail */}
                   {isLegal && (
                     <div className="p-2 rounded-lg bg-white border border-amber-200 text-amber-950 text-[11px] flex items-center justify-between gap-2">
                       <span className="flex items-center gap-1 min-w-0 truncate">
@@ -422,14 +528,28 @@ export function RightInspectorDrawer({
                       “{citation.quote}”
                     </div>
                   ) : (
-                    <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-[11px]">
+                    <div
+                      className={`p-2 rounded-lg border text-[11px] ${
+                        isOverride
+                          ? "bg-purple-50 border-purple-200 text-purple-950"
+                          : isNA
+                            ? "bg-slate-100 border-slate-200 text-slate-900"
+                            : "bg-rose-50 border-rose-200 text-rose-900"
+                      }`}
+                    >
                       {item.fluent_output}
                     </div>
                   )}
 
                   {/* Metadata & quick Copy action */}
                   <div className="flex items-center justify-between text-[10px] font-mono text-zinc-600 pt-1">
-                    <span>rapidfuzz gate · Conf {(item.gate_telemetry.critical_logprob || 0.96).toFixed(2)}</span>
+                    <span>
+                      {isOverride
+                        ? `Human override · ${item.human_override_reason_code || "SME_ATTESTATION"} · Unverified by gate`
+                        : isNA
+                          ? `Marked N/A · ${item.human_override_reason_code || "OUT_OF_SCOPE"}`
+                          : `rapidfuzz gate · Conf ${(item.gate_telemetry.critical_logprob || 0).toFixed(2)}`}
+                    </span>
                     {citation?.quote && (
                       <button
                         type="button"

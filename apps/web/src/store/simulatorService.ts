@@ -3,6 +3,11 @@ import {
   formatCanonicalJsonPath,
   parseJsonPathTokens,
 } from "../lib/evidenceLocators";
+import {
+  assessQuoteStrength,
+  computeWorkItemMetrics,
+  filterWorkItemsForScope,
+} from "../lib/workItemMetrics";
 import type {
   ASTNode,
   CopilotChatResponse,
@@ -51,6 +56,13 @@ export function pauseLocalSimulation(): void {
 }
 
 export function resumeLocalSimulation(): void {
+  localPaused = false;
+  localResume?.();
+  localResume = null;
+}
+
+export function cancelLocalSimulation(): void {
+  localRun += 1;
   localPaused = false;
   localResume?.();
   localResume = null;
@@ -197,11 +209,16 @@ export function localCopilotSearch(
   }
   if (!best || best.score < 50) return insufficientCopilotResponse();
   const { node, document, score } = best;
-  const normalizedScore = Math.max(97, score);
+  const quoteStrength = assessQuoteStrength(node.verbatim_text);
+  const strongMatch = score >= 97 && !quoteStrength.isWeak;
   return {
-    answer: `${node.verbatim_text} [${document.filename}:${node.page_number ?? 1}]`,
-    verification_status: "VERIFIED",
-    match_score: normalizedScore,
+    answer: strongMatch
+      ? `${node.verbatim_text} [${document.filename}:${node.page_number ?? 1}]`
+      : `Partial or weak match (${score}%) in ${document.filename}: ${node.verbatim_text}`,
+    verification_status: strongMatch ? "VERIFIED" : "NEEDS_HUMAN_VERIFICATION",
+    match_score: score,
+    weak_evidence: quoteStrength.isWeak,
+    weak_evidence_reason: quoteStrength.reason,
     citations: [
       {
         quote: node.verbatim_text,
@@ -209,9 +226,9 @@ export function localCopilotSearch(
         page_number: node.page_number,
         bounding_box: node.bounding_box,
         document_filename: document.filename,
-        confidence_score: normalizedScore,
+        confidence_score: score,
         locator: node.locator ?? null,
-        region_match_score: normalizedScore,
+        region_match_score: score,
       },
     ],
   };
@@ -635,7 +652,17 @@ export function localItems(
 ): WorkItem[] {
   return nodes.map((node) => {
     const risk = priorityFor(node.verbatim_text, node.ocr_confidence);
-    const verified = node.ocr_confidence >= 0.9;
+    const quoteStrength = assessQuoteStrength(node.verbatim_text);
+    const confident = node.ocr_confidence >= 0.9;
+    const isWeak = confident && quoteStrength.isWeak;
+    const verified = confident && !isWeak;
+    const priorityTier = !confident
+      ? "P0_CRITICAL"
+      : isWeak && risk.tier === "P2_MEDIUM"
+        ? "P1_HIGH"
+        : risk.tier;
+    const priorityScore = !confident ? 100 : isWeak ? Math.max(risk.score, 65) : risk.score;
+
     return {
       id: uid(),
       workspace_id: workspaceId,
@@ -643,22 +670,25 @@ export function localItems(
       document_id: document.id,
       item_type: "DOCUMENT_FINDING",
       category: categoryFor(node.verbatim_text),
-      priority_tier: verified ? risk.tier : "P0_CRITICAL",
-      priority_score: verified ? risk.score : 100,
+      priority_tier: priorityTier,
+      original_priority_tier: priorityTier,
+      priority_score: priorityScore,
       prompt_or_question: node.section_path ?? "Source item",
       fluent_output: verified
         ? `Verified against the exact source text in ${document.filename}.`
-        : "Insufficient evidence in uploaded corpus — flagged for manual review.",
+        : isWeak
+          ? `Weak evidence flagged (${quoteStrength.reason}): '${node.verbatim_text}' requires reviewer verification.`
+          : "Insufficient evidence in uploaded corpus — flagged for manual review.",
       structured_facts: [
         {
           fact_type: "SOURCE_EXCERPT",
           value: node.verbatim_text.slice(0, 120),
           verbatim_quote: node.verbatim_text,
           ast_node_id: node.id,
-          confidence: verified ? 0.98 : 0.72,
+          confidence: verified ? 0.98 : isWeak ? 0.85 : 0.72,
         },
       ],
-      verified_citations: verified
+      verified_citations: confident
         ? [
             {
               quote: node.verbatim_text,
@@ -672,12 +702,19 @@ export function localItems(
             },
           ]
         : [],
-      verification_status: verified ? "VERIFIED" : "INSUFFICIENT_EVIDENCE",
+      verification_status: verified
+        ? "VERIFIED"
+        : isWeak
+          ? "NEEDS_HUMAN_VERIFICATION"
+          : "INSUFFICIENT_EVIDENCE",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      weak_evidence: isWeak,
+      weak_evidence_reason: quoteStrength.reason,
+      evidence_quality: !confident ? "missing" : isWeak ? "weak" : "strong",
       gate_telemetry: {
-        citation_match: verified ? 100 : 0,
-        critical_logprob: verified ? 0.98 : 0.72,
-        failed_citations: [],
+        citation_match: confident ? 100 : 0,
+        critical_logprob: verified ? 0.98 : isWeak ? 0.85 : 0.72,
+        failed_citations: isWeak ? ["weak_quote_specificity"] : [],
         failed_logprobs: [],
       },
       created_at: new Date().toISOString(),
@@ -704,42 +741,21 @@ export function generateLocalExecutiveSummary({
   const scopedDoc =
     documentId && documentId !== "ALL" ? docById.get(documentId) ?? null : null;
 
-  const filtered = workItems.filter((item) => {
-    if (documentId && documentId !== "ALL" && item.document_id !== documentId) {
-      return false;
-    }
-    if (latestOnly && item.document_id) {
-      const d = docById.get(item.document_id);
-      if (d && !d.is_latest_version) return false;
-    }
-    if (
-      onlyCritical &&
-      item.priority_tier !== "P0_CRITICAL" &&
-      item.verification_status === "VERIFIED"
-    ) {
-      return false;
-    }
-    return true;
+  const filtered = filterWorkItemsForScope({
+    items: workItems,
+    documents,
+    documentId,
+    onlyCritical,
+    latestOnly,
   });
 
-  const totalWorkItems = filtered.length;
-  // ESCALATED_LEGAL is explicitly excluded from verified numerator while retained in denominator
-  const verifiedCount = filtered.filter(
-    (item) => item.verification_status === "VERIFIED"
-  ).length;
-  const escalatedLegalCount = filtered.filter(
-    (item) => item.verification_status === "ESCALATED_LEGAL"
-  ).length;
-  const unresolvedCount = totalWorkItems - verifiedCount;
-  const criticalCount = filtered.filter(
-    (item) =>
-      item.priority_tier === "P0_CRITICAL" ||
-      item.verification_status !== "VERIFIED"
-  ).length;
-  const defensibilityScore =
-    totalWorkItems > 0
-      ? Math.round((verifiedCount / totalWorkItems) * 1000) / 10
-      : 0;
+  const metrics = computeWorkItemMetrics(filtered);
+  const totalWorkItems = metrics.total;
+  const verifiedCount = metrics.machineVerified;
+  const escalatedLegalCount = metrics.escalatedLegal;
+  const unresolvedCount = metrics.unresolved;
+  const criticalCount = metrics.criticalTotal;
+  const defensibilityScore = metrics.defensibilityScore ?? 0;
 
   const latestDocs = documents
     .filter((d) => d.is_latest_version)
@@ -774,6 +790,11 @@ export function generateLocalExecutiveSummary({
       unresolved_count: 0,
       escalated_legal_count: 0,
       critical_count: 0,
+      human_override_count: 0,
+      not_applicable_count: 0,
+      critical_open_count: 0,
+      high_open_count: 0,
+      weak_evidence_count: 0,
       defensibility_score: 0,
       summary_text: emptyMsg,
       markdown: md,
@@ -797,18 +818,26 @@ export function generateLocalExecutiveSummary({
     fluent_output: item.fluent_output,
   }));
 
-  const blockerCount = unresolvedCount;
   const scopeText = scopedDoc
     ? `${scopedDoc.filename}`
     : `${documents.length} corpus document(s)`;
   const parts: string[] = [
-    `Envoy synthesized ${totalWorkItems} finding(s) across ${scopeText}: ${verifiedCount} VERIFIED (${defensibilityScore}% defensibility)`,
+    `Envoy synthesized ${totalWorkItems} finding(s) across ${scopeText}: ${verifiedCount} Machine Verified (${defensibilityScore}% defensibility)`,
   ];
-  if (escalatedLegalCount > 0) {
-    parts.push(`${escalatedLegalCount} escalated to Legal Counsel (excluded from verified numerator)`);
+  if (metrics.humanOverride > 0) {
+    parts.push(`${metrics.humanOverride} human overridden (unverified by gate)`);
   }
-  if (blockerCount - escalatedLegalCount > 0) {
-    parts.push(`${blockerCount - escalatedLegalCount} pending human verification`);
+  if (escalatedLegalCount > 0) {
+    parts.push(`${escalatedLegalCount} escalated to Legal Counsel (excluded from machine-verified numerator)`);
+  }
+  if (metrics.notApplicable > 0) {
+    parts.push(`${metrics.notApplicable} marked N/A`);
+  }
+  if (unresolvedCount > 0) {
+    parts.push(`${unresolvedCount} pending human verification`);
+  }
+  if (metrics.weakEvidenceCount > 0) {
+    parts.push(`${metrics.weakEvidenceCount} weak evidence`);
   }
   if (supersededDocs.length > 0 && latestOnly) {
     parts.push(
@@ -822,8 +851,11 @@ export function generateLocalExecutiveSummary({
     "",
     `- **Scope**: ${scopedDoc ? scopedDoc.filename : "All Documents"}`,
     `- **Total Findings**: ${totalWorkItems}`,
-    `- **Verified**: ${verifiedCount}`,
-    `- **Unresolved / Needs Review**: ${unresolvedCount} (Escalated to Legal: ${escalatedLegalCount})`,
+    `- **Machine Verified**: ${verifiedCount}`,
+    `- **Human Overridden**: ${metrics.humanOverride}`,
+    `- **Escalated (Legal)**: ${escalatedLegalCount}`,
+    `- **Marked N/A**: ${metrics.notApplicable}`,
+    `- **Unresolved**: ${unresolvedCount}`,
     `- **Defensibility Score**: ${defensibilityScore}%`,
     "",
     "## Executive Synthesis",
@@ -847,6 +879,11 @@ export function generateLocalExecutiveSummary({
     unresolved_count: unresolvedCount,
     escalated_legal_count: escalatedLegalCount,
     critical_count: criticalCount,
+    human_override_count: metrics.humanOverride,
+    not_applicable_count: metrics.notApplicable,
+    critical_open_count: metrics.criticalOpen,
+    high_open_count: metrics.highOpen,
+    weak_evidence_count: metrics.weakEvidenceCount,
     defensibility_score: defensibilityScore,
     summary_text: summaryText,
     markdown: lines.join("\n"),
@@ -873,6 +910,7 @@ export async function runLocalMultiAgentReview(
       if (runId !== localRun) return;
     }
     const targetDoc = documents[index % documents.length];
+    if (!targetDoc) return;
     const current: JobExecution = {
       ...job,
       status: "RUNNING",
@@ -901,9 +939,9 @@ export async function runLocalMultiAgentReview(
       message: `${AGENT_ROLES[index]} completed verified inspection on ${targetDoc.filename}. Zero unverified claims emitted.`,
     });
   }
+  if (runId !== localRun) return;
   const items: WorkItem[] = get().workItems ?? [];
-  const verifiedTotal = items.filter((i) => i.verification_status === "VERIFIED").length;
-  const unresolvedTotal = items.length - verifiedTotal;
+  const metrics = computeWorkItemMetrics(items);
   const completedJob: JobExecution = {
     ...job,
     status: "COMPLETED",
@@ -915,6 +953,7 @@ export async function runLocalMultiAgentReview(
     activeJob: completedJob,
     job: completedJob,
     isSimulating: false,
-    notice: `Review complete — ${verifiedTotal}/${items.length} items verified. ${unresolvedTotal} item(s) require action.`,
+    hasCompletedRun: true,
+    notice: `Review complete — ${metrics.machineVerified}/${metrics.total} machine-verified. ${metrics.needsTriage} item(s) require action.`,
   }));
 }

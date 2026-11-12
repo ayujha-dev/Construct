@@ -1,14 +1,13 @@
 import { BarChart3, Bot, HelpCircle, Layers, ShieldCheck, UploadCloud } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { computeWorkItemMetrics } from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
 
 export function WeTransferIconRail() {
   const navigate = useNavigate();
   const { workItems, activeJob, workspaceId } = useBertStore();
   const running = activeJob?.status === "RUNNING";
-  const criticalCount = workItems.filter(
-    (i) => i.priority_tier === "P0_CRITICAL" || i.verification_status !== "VERIFIED"
-  ).length;
+  const { needsTriage } = computeWorkItemMetrics(workItems);
   const wsQuery = `?workspace=${encodeURIComponent(workspaceId || "default")}`;
 
   return (
@@ -99,9 +98,9 @@ export function WeTransferIconRail() {
           }
           title="SHA-256 Audit Ledger"
         >
-          {criticalCount > 0 && (
+          {needsTriage > 0 && (
             <span className="absolute top-1 right-1 w-4 h-4 bg-[#BE123C] text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-              {criticalCount}
+              {needsTriage}
             </span>
           )}
           <ShieldCheck size={19} strokeWidth={1.8} />

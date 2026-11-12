@@ -17,6 +17,7 @@ import {
 import { useRef } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { inferSourceChip } from "../../lib/evidenceLocators";
+import { computeWorkItemMetrics, itemMatchesDocumentFilter } from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
 import type { Document } from "../../types/bert";
 
@@ -33,6 +34,8 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
     documents,
     workItems,
     activeJob,
+    isSimulating,
+    hasCompletedRun,
     corpusStatus,
     corpusError,
     workspaceId,
@@ -47,14 +50,19 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
   const isCanvasMode = location.search.includes("mode=canvas");
   const isAuditTab = location.search.includes("tab=audit");
 
-  const criticalCount = workItems.filter(
-    (i) => i.priority_tier === "P0_CRITICAL" || i.verification_status !== "VERIFIED"
-  ).length;
-
-  // Exclude ESCALATED_LEGAL from verified numerator while retaining inside totalCount denominator
-  const verifiedCount = workItems.filter((i) => i.verification_status === "VERIFIED").length;
-  const totalCount = workItems.length;
-  const progressPct = totalCount > 0 ? Math.min(100, Math.round((verifiedCount / totalCount) * 100)) : 0;
+  const metrics = computeWorkItemMetrics(workItems);
+  const progressPct =
+    metrics.total > 0 ? Math.min(100, Math.round((metrics.machineVerified / metrics.total) * 100)) : 0;
+  const isRunning =
+    isSimulating || activeJob?.status === "RUNNING" || activeJob?.status === "RESUMING";
+  const canExport = !isRunning && metrics.total > 0 && hasCompletedRun;
+  const exportBlockedReason = isRunning
+    ? "Review run in progress — export unlocks on completion"
+    : metrics.total === 0
+      ? "Load or upload a corpus first"
+      : !hasCompletedRun
+        ? "Complete a review run before exporting"
+        : "Export completed .XLSX report";
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -86,9 +94,9 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
     if (activeJob?.status === "RUNNING" && activeJob.current_document_id === doc.id) {
       return { label: "processing", style: "bg-blue-100 text-blue-800 border-blue-200" };
     }
-    const docItems = workItems.filter((w) => w.document_id === doc.id);
+    const docItems = workItems.filter((w) => itemMatchesDocumentFilter(w, doc.id));
     if (docItems.some((w) => w.verification_status === "ESCALATED_LEGAL")) {
-      return { label: "legal", style: "bg-amber-100 text-amber-900 border-amber-300" };
+      return { label: "legal", style: "bg-amber-100 text-amber-950 border-amber-300" };
     }
     if (
       docItems.some(
@@ -98,13 +106,22 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
       ) ||
       doc.processing_status === "FAILED"
     ) {
-      return { label: "needs input", style: "bg-rose-100 text-rose-800 border-rose-200" };
+      return { label: "needs input", style: "bg-rose-100 text-rose-900 border-rose-200" };
+    }
+    if (docItems.some((w) => w.verification_status === "HUMAN_OVERRIDE")) {
+      return { label: "override", style: "bg-purple-100 text-purple-950 border-purple-300" };
+    }
+    if (
+      docItems.length > 0 &&
+      docItems.every((w) => w.verification_status === "NOT_APPLICABLE")
+    ) {
+      return { label: "n/a", style: "bg-slate-100 text-slate-900 border-slate-300" };
     }
     if (
       doc.processing_status === "VERIFIED" ||
       (docItems.length > 0 && docItems.every((w) => w.verification_status === "VERIFIED"))
     ) {
-      return { label: "verified", style: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+      return { label: "verified", style: "bg-emerald-100 text-emerald-900 border-emerald-200" };
     }
     return { label: "ingested", style: "bg-zinc-100 text-zinc-700 border-zinc-200" };
   };
@@ -118,7 +135,8 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
   };
 
   const exportXlsx = () => {
-    navigate("/results");
+    if (!canExport) return;
+    navigate("/results?export=1");
     onNavigate?.();
   };
 
@@ -229,9 +247,9 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
               <ShieldAlert size={16} className="text-rose-700" />
               <span>Human Escalations</span>
             </div>
-            {criticalCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                {criticalCount}
+            {metrics.needsTriage > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200">
+                {metrics.needsTriage}
               </span>
             )}
           </NavLink>
@@ -366,7 +384,7 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
           <div className="flex items-center justify-between text-[11px] mb-1 font-medium text-zinc-700">
             <span>Review Progress</span>
             <span className="font-mono text-zinc-900 font-bold">
-              {verifiedCount}/{totalCount} Verified
+              {metrics.machineVerified}/{metrics.total} Verified
             </span>
           </div>
           <div className="w-full h-1.5 bg-zinc-200 rounded-full overflow-hidden">
@@ -375,16 +393,37 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
               style={{ width: `${progressPct}%` }}
             />
           </div>
+          {(metrics.humanOverride > 0 || metrics.escalatedLegal > 0 || metrics.notApplicable > 0 || metrics.unresolved > 0) && (
+            <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-mono text-zinc-700">
+              {metrics.humanOverride > 0 && <span>{metrics.humanOverride} override</span>}
+              {metrics.escalatedLegal > 0 && <span>· {metrics.escalatedLegal} legal</span>}
+              {metrics.notApplicable > 0 && <span>· {metrics.notApplicable} n/a</span>}
+              {metrics.unresolved > 0 && <span>· {metrics.unresolved} open</span>}
+            </div>
+          )}
         </div>
 
         <button
           type="button"
+          data-testid="sidebar-export-xlsx-btn"
+          disabled={!canExport}
+          title={exportBlockedReason}
+          aria-label={exportBlockedReason}
           onClick={exportXlsx}
-          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-medium shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+          className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${
+            canExport
+              ? "bg-[#1D4ED8] hover:bg-[#1E40AF] text-white cursor-pointer"
+              : "bg-zinc-200 text-zinc-600 cursor-not-allowed"
+          }`}
         >
           <Download size={13} />
           <span>Export Completed .XLSX</span>
         </button>
+        {!canExport && (
+          <p className="mt-1 text-[10px] text-zinc-600 text-center leading-tight">
+            {exportBlockedReason}
+          </p>
+        )}
       </div>
     </aside>
   );

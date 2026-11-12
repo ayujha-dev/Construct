@@ -16,6 +16,8 @@ class Settings:
     vllm_vision_url: str = os.getenv("VLLM_VISION_URL", "http://localhost:8002/v1")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    min_quote_chars: int = int(os.getenv("MIN_QUOTE_CHARS", "24"))
+    min_quote_words: int = int(os.getenv("MIN_QUOTE_WORDS", "4"))
 
 
 settings = Settings()

@@ -12,6 +12,7 @@ import { BentoCanvas } from "../components/copilot/BentoCanvas";
 import { CopilotStream } from "../components/copilot/CopilotStream";
 import { RightInspectorDrawer } from "../components/copilot/RightInspectorDrawer";
 import { AGENTS, useBertStore } from "../store/useBertStore";
+import { computeWorkItemMetrics } from "../lib/workItemMetrics";
 
 const MIN_INSPECTOR_WIDTH = 240;
 const MAX_INSPECTOR_WIDTH = 600;
@@ -106,15 +107,7 @@ export function WorkspacePage() {
   const activeDoc = activeDocId ? documents.find((d) => d.id === activeDocId) : documents[0];
   const currentNode = (activeJob?.current_node_index ?? 0) + 1;
 
-  // Exclude ESCALATED_LEGAL from verified numerator while tracking unresolved/critical cleanly
-  const criticalCount = workItems.filter((i) => i.priority_tier === "P0_CRITICAL").length;
-  const legalCount = workItems.filter((i) => i.verification_status === "ESCALATED_LEGAL").length;
-  const needsHumanCount = workItems.filter(
-    (i) =>
-      i.verification_status === "NEEDS_HUMAN_VERIFICATION" ||
-      i.verification_status === "INSUFFICIENT_EVIDENCE"
-  ).length;
-  const verifiedCount = workItems.filter((i) => i.verification_status === "VERIFIED").length;
+  const metrics = computeWorkItemMetrics(workItems);
 
   const telemetryText = isRunning
     ? `Agent ${agentIndex + 1} (${currentAgent}) is inspecting ${activeDoc?.filename || "source"} (Node ${currentNode})`
@@ -209,24 +202,34 @@ export function WorkspacePage() {
 
         {/* Right: Counters + Inspector Controls + Results Button */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="hidden 2xl:flex items-center gap-1.5 text-xs font-mono">
-            {criticalCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 border border-rose-200 font-semibold">
-                {criticalCount} Critical
+          <div className="hidden 2xl:flex items-center gap-1.5 text-xs font-mono" data-testid="workspace-header-metrics">
+            {metrics.criticalOpen > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-900 border border-rose-200 font-semibold">
+                {metrics.criticalOpen} Critical Open
               </span>
             )}
-            {legalCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 font-semibold">
-                {legalCount} Legal
+            {metrics.escalatedLegal > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 font-semibold">
+                {metrics.escalatedLegal} Legal
               </span>
             )}
-            {needsHumanCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">
-                {needsHumanCount} Human Input
+            {metrics.humanOverride > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-950 border border-purple-300 font-semibold">
+                {metrics.humanOverride} Override
               </span>
             )}
-            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
-              {verifiedCount}/{workItems.length} Verified
+            {metrics.notApplicable > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-900 border border-slate-300 font-semibold">
+                {metrics.notApplicable} N/A
+              </span>
+            )}
+            {metrics.unresolved > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-950 border border-amber-200 font-semibold">
+                {metrics.unresolved} Human Input
+              </span>
+            )}
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-950 border border-emerald-200 font-semibold">
+              {metrics.machineVerified}/{metrics.total} Verified
             </span>
           </div>
 

@@ -68,9 +68,9 @@ async def _seed_one_work_item() -> tuple[str, str]:
 # 1. Pydantic Model Unit Validation Tests
 # ==============================================================================
 
-@pytest.mark.parametrize("action", ["manual_correction", "retry", "skip", "approve", "counsel", "undo"])
+@pytest.mark.parametrize("action", ["manual_correction", "retry", "skip", "not_applicable", "approve", "counsel", "undo"])
 def test_schema_accepts_all_valid_actions(action: str) -> None:
-    """Verify that all 6 specified escalation actions instantiate cleanly without ValidationError."""
+    """Verify that all supported escalation actions instantiate cleanly without ValidationError."""
     req = EscalationActionRequest(action=action)  # type: ignore[arg-type]
     assert req.action == action
     assert req.note is None
@@ -79,6 +79,9 @@ def test_schema_accepts_all_valid_actions(action: str) -> None:
     assert req.assignee is None
     assert req.actor is None
     assert req.reason_code is None
+    assert req.no_evidence_attestation is False
+    assert req.override_locator is None
+    assert req.override_citation_text is None
 
 
 @pytest.mark.parametrize(
@@ -189,16 +192,34 @@ def test_schema_rejects_invalid_manual_payload_type(invalid_payload: dict[str, A
             "ESCALATED_LEGAL",
         ),
         (
-            {"action": "skip", "note": "Non-applicable finding"},
-            "VERIFIED",
+            {"action": "skip", "note": "Non-applicable finding", "reason_code": "OUT_OF_SCOPE"},
+            "NOT_APPLICABLE",
+        ),
+        (
+            {"action": "not_applicable", "reason_code": "UNSUPPORTED_ENVIRONMENT"},
+            "NOT_APPLICABLE",
         ),
         (
             {"action": "retry", "note": "Re-run deep vision crop"},
             "NEEDS_HUMAN_VERIFICATION",
         ),
         (
-            {"action": "manual_correction", "correction": "Audit logs are retained for 365 days in WORM storage."},
-            "VERIFIED",
+            {
+                "action": "manual_correction",
+                "reason_code": "EXTERNAL_AUDIT_EVIDENCE",
+                "correction": "Audit logs are retained for 365 days in WORM storage.",
+                "override_citation_text": "SOC2 Type II Section 4.2 immutable WORM retention policy",
+            },
+            "HUMAN_OVERRIDE",
+        ),
+        (
+            {
+                "action": "manual_correction",
+                "reason_code": "COMPENSATING_CONTROL_ATTESTATION",
+                "correction": "Privileged SSH accounts require hardware FIDO2 MFA keys under internal runbook.",
+                "no_evidence_attestation": True,
+            },
+            "HUMAN_OVERRIDE",
         ),
     ],
 )
@@ -206,7 +227,7 @@ async def test_endpoint_resolves_all_five_actions_without_422(
     action_payload: dict[str, Any],
     expected_status: str,
 ) -> None:
-    """Verify that all 5 resolution actions update status and audit fields accurately."""
+    """Verify that all resolution actions update status, priority preservation, and audit fields accurately."""
     await startup()
     _, work_item_id = await _seed_one_work_item()
 
@@ -221,12 +242,12 @@ async def test_endpoint_resolves_all_five_actions_without_422(
         assert data["id"] == work_item_id
         assert data["verification_status"] == expected_status
         assert data["can_undo"] is True
+        # Original priority_tier and priority_score MUST be preserved across all reviewer actions.
+        assert data["priority_tier"] == "P0_CRITICAL"
+        assert data["priority_score"] == 95
+        assert data["original_priority_tier"] == "P0_CRITICAL"
 
         if action_payload["action"] == "counsel":
-            # Critical requirement: Flag for Legal preserves original priority_tier & score.
-            assert data["priority_tier"] == "P0_CRITICAL"
-            assert data["priority_score"] == 95
-            assert data["original_priority_tier"] == "P0_CRITICAL"
             assert data["escalation_assignee"] == "Jane Doe, General Counsel"
             assert data["escalated_by"] == "Alice Reviewer"
             assert "UNCAPPED_INDEMNITY" in (data["escalation_reason"] or "")
@@ -243,6 +264,12 @@ async def test_endpoint_resolves_all_five_actions_without_422(
         if action_payload["action"] == "approve":
             assert data["fluent_output"] != "Marked not applicable by reviewer."
 
+        if action_payload["action"] == "manual_correction":
+            assert data["resolved_by_tier"] == "HUMAN_IN_THE_LOOP"
+            assert data["human_override_reason_code"] == action_payload["reason_code"]
+            assert data["gate_telemetry"]["citation_match"] == 0.0
+            assert data["gate_telemetry"]["critical_logprob"] == 0.0
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -256,9 +283,19 @@ async def test_endpoint_resolves_all_five_actions_without_422(
         {"action": 999},
         {"action": False},
         {"note": "Missing action field entirely"},
-        {"action": "manual_correction", "correction": ""},  # empty correction should 422
-        {"action": "manual_correction", "correction": "   "},  # whitespace correction should 422
-        {"action": "manual_correction"},  # missing correction should 422
+        {"action": "manual_correction", "correction": ""},
+        {"action": "manual_correction", "correction": "   "},
+        {"action": "manual_correction"},
+        # Phase 3 strict manual_correction rejections:
+        {"action": "manual_correction", "reason_code": "TYPO", "correction": "Hello", "no_evidence_attestation": True},
+        {"action": "manual_correction", "reason_code": "SHORT", "correction": "Short two", "no_evidence_attestation": True},
+        {"action": "manual_correction", "reason_code": "TWO_WORDS", "correction": "Longwordone Longwordtwo", "no_evidence_attestation": True},
+        {"action": "manual_correction", "correction": "Audit logs are retained for 365 days in WORM storage.", "no_evidence_attestation": True},
+        {"action": "manual_correction", "reason_code": "MISSING_PROOF", "correction": "Audit logs are retained for 365 days in WORM storage."},
+        # Phase 3 strict N/A rejections when both note and reason_code are absent/blank:
+        {"action": "skip"},
+        {"action": "skip", "note": "   ", "reason_code": "   "},
+        {"action": "not_applicable"},
         {"action": "approve", "manual_payload": "string_not_dict"},
     ],
 )

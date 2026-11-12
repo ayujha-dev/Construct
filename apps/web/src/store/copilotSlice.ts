@@ -72,6 +72,8 @@ export const createCopilotSlice: StateCreator<BertState, [], [], CopilotSlice> =
               status: resolved.verification_status === "VERIFIED" ? ("VERIFIED" as const) : ("INSUFFICIENT_EVIDENCE" as const),
               match_score: resolved.match_score,
               citations: resolved.citations,
+              weak_evidence: Boolean(resolved.weak_evidence),
+              weak_evidence_reason: resolved.weak_evidence_reason ?? null,
             }
           : message
       );
@@ -170,7 +172,7 @@ export const createCopilotSlice: StateCreator<BertState, [], [], CopilotSlice> =
               ...message,
               answer: summary.summary_text,
               status: summary.total_work_items > 0 ? ("VERIFIED" as const) : ("INSUFFICIENT_EVIDENCE" as const),
-              match_score: summary.defensibility_score,
+              match_score: summary.defensibility_score ?? 0,
               citations: summaryCitations,
               summarySnapshot: summary,
             }
@@ -180,7 +182,7 @@ export const createCopilotSlice: StateCreator<BertState, [], [], CopilotSlice> =
         asking: false,
         chatMessages: nextMessages,
         messages: nextMessages,
-        notice: `Envoy Executive Summary updated (${summary.defensibility_score}% defensibility · ${summary.verified_count}/${summary.total_work_items} verified).`,
+        notice: `Envoy Executive Summary updated (${summary.defensibility_score ?? 0}% defensibility · ${summary.verified_count}/${summary.total_work_items} verified).`,
       };
     });
   },

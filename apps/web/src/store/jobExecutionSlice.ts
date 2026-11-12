@@ -1,5 +1,9 @@
 import type { StateCreator } from "zustand";
 import { bertApi, type SummaryQueryParams } from "../lib/api";
+import {
+  validateManualOverrideInput,
+  validateNotApplicableInput,
+} from "../lib/workItemMetrics";
 import type {
   AuditLogEntry,
   EscalationActionPayload,
@@ -11,6 +15,7 @@ import type {
 import { buildDemoCorpus } from "./demoCorpusService";
 import {
   AGENTS,
+  cancelLocalSimulation,
   checksum,
   generateLocalExecutiveSummary,
   pauseLocalSimulation,
@@ -34,6 +39,7 @@ export interface JobExecutionSlice {
   workItems: WorkItem[];
   events: PipelineEvent[];
   isSimulating: boolean;
+  hasCompletedRun: boolean;
   executiveSummary: ExecutiveSummary | null;
   summaryStatus: SummaryStatus;
   summaryError: string | null;
@@ -60,6 +66,7 @@ export interface JobExecutionSlice {
   refresh: () => Promise<void>;
   retryCorpusRefresh: () => Promise<void>;
   loadDemo: () => Promise<void>;
+  resetWorkspace: () => Promise<void>;
 }
 
 const DEFAULT_SUMMARY_PARAMS: SummaryQueryParams = {
@@ -67,6 +74,8 @@ const DEFAULT_SUMMARY_PARAMS: SummaryQueryParams = {
   only_critical: false,
   latest_only: false,
 };
+
+let corpusEpoch = 0;
 
 function isNetworkFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -79,6 +88,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   workItems: [],
   events: [],
   isSimulating: false,
+  hasCompletedRun: false,
   executiveSummary: null,
   summaryStatus: "idle",
   summaryError: null,
@@ -97,6 +107,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         job,
         workspaceId: job.workspace_id ?? get().workspaceId,
         isSimulating: true,
+        hasCompletedRun: false,
         backendAvailable: true,
       });
     } catch {
@@ -248,7 +259,12 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
             action: (actionOrPayload === "not_applicable" ? "skip" : actionOrPayload) as EscalationActionPayload["action"],
             correction,
           }
-        : actionOrPayload;
+        : {
+            ...actionOrPayload,
+            action: (actionOrPayload.action === ("not_applicable" as string)
+              ? "skip"
+              : actionOrPayload.action) as EscalationActionPayload["action"],
+          };
 
     if (payload.action === "undo") {
       await get().undoWorkItem(workItemId, payload.actor, payload.note);
@@ -257,6 +273,35 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
 
     const existing = state.workItems.find((item) => item.id === workItemId);
     const snapshot = existing ? { ...existing } : undefined;
+
+    if (payload.action === "manual_correction") {
+      const check = validateManualOverrideInput({
+        correction: payload.correction ?? payload.note ?? "",
+        reasonCode: payload.reason_code ?? "",
+        overrideLocator: payload.override_locator ?? null,
+        overrideCitationText: payload.override_citation_text ?? null,
+        noEvidenceAttestation: payload.no_evidence_attestation,
+        hasExistingLocator: Boolean(
+          existing?.verified_citations?.some((c) => Boolean(c.locator || c.bounding_box || c.quote))
+        ),
+      });
+      if (!check.valid) {
+        const msg = check.message || "Invalid manual override submission.";
+        set({ notice: msg });
+        throw new Error(msg);
+      }
+    } else if (payload.action === "skip") {
+      const check = validateNotApplicableInput({
+        reasonCode: payload.reason_code,
+        note: payload.note ?? payload.correction,
+      });
+      if (!check.valid) {
+        const msg = check.message || "Mark N/A requires an explicit reason.";
+        set({ notice: msg });
+        throw new Error(msg);
+      }
+    }
+
     let updatedItem: WorkItem | null = null;
     let usedFallback = false;
 
@@ -268,7 +313,12 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         } else {
           updatedItem = remote;
         }
-      } catch {
+      } catch (err) {
+        if (!isNetworkFailure(err)) {
+          const msg = err instanceof Error ? err.message : "Failed to resolve work item.";
+          set({ notice: msg });
+          throw err instanceof Error ? err : new Error(msg);
+        }
         updatedItem = null;
       }
     }
@@ -277,6 +327,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       usedFallback = true;
       const action = payload.action;
       let status: WorkItem["verification_status"] = "VERIFIED";
+      // Phase 3 invariant: human override & N/A NEVER downgrade priority_tier or priority_score
       let tier: WorkItem["priority_tier"] = existing.priority_tier;
       let score = existing.priority_score;
       let output = payload.correction || payload.note || existing.fluent_output;
@@ -285,22 +336,55 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       let escalatedAt = existing.escalated_at ?? null;
       const escalatedBy = payload.actor?.trim() || "Compliance Reviewer";
       const originalTier = existing.original_priority_tier ?? existing.priority_tier;
+      let humanOverrideReasonCode = existing.human_override_reason_code ?? null;
+      let noEvidenceAttestation = existing.no_evidence_attestation ?? false;
+      let overrideLocator = existing.override_locator ?? null;
+      let gateTelemetry = { ...existing.gate_telemetry };
 
       if (action === "manual_correction") {
-        output = payload.correction || "Manually resolved by reviewer with confirmed evidence.";
-        tier = "P2_MEDIUM";
-        score = 50;
+        status = "HUMAN_OVERRIDE";
+        output = (payload.correction ?? payload.note ?? "").trim();
+        tier = existing.priority_tier;
+        score = existing.priority_score;
+        humanOverrideReasonCode = payload.reason_code?.trim() || "SME_ATTESTATION";
+        noEvidenceAttestation = Boolean(payload.no_evidence_attestation);
+        overrideLocator =
+          payload.override_locator ??
+          (payload.override_citation_text?.trim()
+            ? {
+                source_type: "text",
+                doc_id: existing.document_id ?? "",
+              }
+            : existing.override_locator ?? null);
+        escalationReason = payload.note?.trim() || humanOverrideReasonCode;
+        // Never inflate machine match% or critical logprob telemetry on human override
+        gateTelemetry = {
+          ...existing.gate_telemetry,
+          citation_match: existing.gate_telemetry?.citation_match ?? 0,
+          critical_logprob: existing.gate_telemetry?.critical_logprob ?? 0,
+          override_citation_text:
+            payload.override_citation_text?.trim() ||
+            existing.gate_telemetry?.override_citation_text ||
+            null,
+          manual_override: true,
+        };
       } else if (action === "retry") {
         status = "NEEDS_HUMAN_VERIFICATION";
         output = "Deep vision rescue retry requested — awaiting fresh crop pass.";
-        tier = "P1_HIGH";
-        score = 75;
+        tier = existing.priority_tier === "P0_CRITICAL" ? "P0_CRITICAL" : "P1_HIGH";
+        score = Math.max(existing.priority_score, 75);
         escalationReason = payload.note?.trim() || "Deep vision retry requested.";
       } else if (action === "skip") {
-        status = "VERIFIED";
-        tier = "P3_LOW";
-        score = 10;
-        output = payload.note?.trim() || payload.correction || "Marked not applicable by reviewer.";
+        status = "NOT_APPLICABLE";
+        tier = existing.priority_tier;
+        score = existing.priority_score;
+        humanOverrideReasonCode = payload.reason_code?.trim() || "OUT_OF_SCOPE";
+        escalationReason =
+          payload.note?.trim() || payload.correction?.trim() || humanOverrideReasonCode;
+        output =
+          payload.note?.trim() ||
+          payload.correction?.trim() ||
+          `Marked Not Applicable (${humanOverrideReasonCode})`;
       } else if (action === "counsel") {
         // Legal Counsel escalation preserves original priority tier & score; excluded from VERIFIED numerator
         status = "ESCALATED_LEGAL";
@@ -316,9 +400,11 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         output = `Escalated to ${escalationAssignee}: ${escalationReason}`;
       } else if (action === "approve") {
         status = "VERIFIED";
-        output = payload.correction || existing.structured_facts[0]?.verbatim_quote
-          ? payload.correction || `Reviewer approved extracted evidence: ${existing.structured_facts[0]?.verbatim_quote}`
-          : "Reviewer approved finding.";
+        output =
+          payload.correction ||
+          (existing.structured_facts[0]?.verbatim_quote
+            ? `Reviewer approved extracted evidence: ${existing.structured_facts[0]?.verbatim_quote}`
+            : "Reviewer approved finding.");
       }
 
       updatedItem = {
@@ -327,12 +413,17 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         priority_tier: tier,
         priority_score: score,
         fluent_output: output,
-        resolved_by_tier: action === "counsel" || action === "retry" ? existing.resolved_by_tier : "HUMAN_IN_THE_LOOP",
+        resolved_by_tier:
+          action === "counsel" || action === "retry" ? existing.resolved_by_tier : "HUMAN_IN_THE_LOOP",
         escalation_reason: escalationReason,
         escalation_assignee: escalationAssignee,
         escalated_at: escalatedAt,
         escalated_by: escalatedBy,
         original_priority_tier: originalTier,
+        human_override_reason_code: humanOverrideReasonCode,
+        no_evidence_attestation: noEvidenceAttestation,
+        override_locator: overrideLocator,
+        gate_telemetry: gateTelemetry,
         can_undo: true,
       };
     }
@@ -355,6 +446,8 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         metadata_json: {
           action: payload.action,
           reason: itemToSet.escalation_reason,
+          reason_code: itemToSet.human_override_reason_code,
+          no_evidence_attestation: itemToSet.no_evidence_attestation,
           assignee: itemToSet.escalation_assignee,
           original_priority_tier: itemToSet.original_priority_tier,
         },
@@ -370,12 +463,19 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         undoToast: {
           workItemId,
           label: itemToSet.prompt_or_question.slice(0, 48),
-          action: payload.action === "counsel" ? "Flagged for Legal" : `Updated (${itemToSet.verification_status})`,
+          action:
+            payload.action === "counsel"
+              ? "Flagged for Legal"
+              : payload.action === "manual_correction"
+                ? "Human Override"
+                : payload.action === "skip"
+                  ? "Marked N/A"
+                  : `Updated (${itemToSet.verification_status})`,
         },
         notice:
           payload.action === "counsel"
             ? `Escalated "${itemToSet.prompt_or_question.slice(0, 32)}..." to ${itemToSet.escalation_assignee || "Legal Counsel"} (${itemToSet.priority_tier} preserved).`
-            : `Updated "${itemToSet.prompt_or_question.slice(0, 36)}..." (${itemToSet.verification_status}).`,
+            : `Updated "${itemToSet.prompt_or_question.slice(0, 36)}..." (${itemToSet.verification_status} · ${itemToSet.priority_tier}).`,
       }));
 
       void get().loadSummary(get().summaryParams, true);
@@ -448,6 +548,42 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   },
 
   appendEvent: (event) => {
+    if (event.type === "corpus_reset") {
+      cancelLocalSimulation();
+      corpusEpoch += 1;
+      set({
+        documents: [],
+        nodesByDocument: {},
+        workItems: [],
+        events: [],
+        chatMessages: [],
+        messages: [],
+        executiveSummary: null,
+        summaryStatus: "idle",
+        summaryError: null,
+        auditLogs: [],
+        selectedDocumentId: null,
+        selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
+        requestedPage: null,
+        currentPdfPage: null,
+        documentFiles: {},
+        activeJob: null,
+        job: null,
+        isSimulating: false,
+        hasCompletedRun: false,
+        workItemUndoSnapshots: {},
+        undoToast: null,
+        corpusStatus: "idle",
+        corpusError: null,
+      });
+      return;
+    }
+
     set((state) => {
       let nextJob = state.activeJob;
       if (state.activeJob && (!event.job_id || event.job_id === state.activeJob.job_id)) {
@@ -498,6 +634,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         activeJob: nextJob,
         job: nextJob,
         isSimulating: isCompleted || isPaused || isFailed ? false : state.isSimulating || nextJob?.status === "RUNNING",
+        hasCompletedRun: isCompleted ? true : state.hasCompletedRun,
       };
     });
 
@@ -509,10 +646,12 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
   },
 
   refresh: async () => {
+    const myEpoch = corpusEpoch;
     // Never wipe documents while loading so Active Corpus sidebar has zero 0-file flicker
     set({ corpusStatus: "loading", corpusError: null });
     try {
       const [documents, workItems] = await Promise.all([bertApi.getDocuments(), bertApi.getWorkItems()]);
+      if (myEpoch !== corpusEpoch) return;
       const latest = get();
       const jobActive =
         latest.isSimulating || latest.activeJob?.status === "RUNNING" || latest.activeJob?.status === "RESUMING";
@@ -550,6 +689,10 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       const resolvedWorkspaceId =
         documents[0]?.workspace_id ?? workItems[0]?.workspace_id ?? latest.workspaceId ?? null;
 
+      const hasCompletedRun =
+        latest.hasCompletedRun ||
+        (workItems.length > 0 && !jobActive && latest.activeJob?.status !== "PAUSED");
+
       set({
         documents,
         workItems,
@@ -559,14 +702,17 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         workspaceId: resolvedWorkspaceId,
         selectedDocumentId,
         selectedFileFilterId,
+        hasCompletedRun,
       });
 
       if (selectedDocumentId && !get().nodesByDocument[selectedDocumentId]) {
         await get().loadNodes(selectedDocumentId);
       }
+      if (myEpoch !== corpusEpoch) return;
       void get().loadSummary(get().summaryParams, false);
       void get().loadAuditLogs();
     } catch (err) {
+      if (myEpoch !== corpusEpoch) return;
       const latest = get();
       const networkDown = isNetworkFailure(err);
       const rawMessage = err instanceof Error ? err.message.trim() : "";
@@ -586,13 +732,65 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
     await get().refresh();
   },
 
+  resetWorkspace: async () => {
+    cancelLocalSimulation();
+    const myEpoch = ++corpusEpoch;
+    if (get().backendAvailable) {
+      try {
+        await bertApi.resetCorpus();
+      } catch {
+        // Proceed with local atomic reset even if backend reset fails/offline
+      }
+    }
+    if (myEpoch !== corpusEpoch) return;
+    set({
+      documents: [],
+      nodesByDocument: {},
+      workItems: [],
+      events: [],
+      chatMessages: [],
+      messages: [],
+      executiveSummary: null,
+      summaryStatus: "idle",
+      summaryError: null,
+      auditLogs: [],
+      selectedDocumentId: null,
+      selectedFileFilterId: null,
+      selectedNodeId: null,
+      activeHighlightBox: null,
+      activeLocator: null,
+      activeCitationQuote: null,
+      activeRegionMatchScore: null,
+      requestedPage: null,
+      currentPdfPage: null,
+      documentFiles: {},
+      activeJob: null,
+      job: null,
+      isSimulating: false,
+      hasCompletedRun: false,
+      workItemUndoSnapshots: {},
+      undoToast: null,
+      corpusStatus: "idle",
+      corpusError: null,
+      notice: "Workspace reset · Ready for a fresh corpus or demo case.",
+    });
+  },
+
   loadDemo: async () => {
+    cancelLocalSimulation();
+    const myEpoch = ++corpusEpoch;
+    // Atomic transient-state clear while keeping existing documents intact during load to avoid 0-file flash
     set({
       corpusStatus: "loading",
       corpusError: null,
       events: [],
       chatMessages: [],
       messages: [],
+      workItems: [],
+      executiveSummary: null,
+      summaryStatus: "idle",
+      summaryError: null,
+      auditLogs: [],
       selectedNodeId: null,
       activeHighlightBox: null,
       activeLocator: null,
@@ -604,16 +802,21 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
       documentFiles: {},
       undoToast: null,
       workItemUndoSnapshots: {},
+      hasCompletedRun: false,
+      isSimulating: true,
     });
 
     let started = false;
     try {
       const job = await bertApi.startDemo();
+      if (myEpoch !== corpusEpoch) return;
+      const stillRunning = job.status === "RUNNING" || job.status === "RESUMING";
       set({
         activeJob: job,
         job,
         workspaceId: job.workspace_id,
-        isSimulating: true,
+        isSimulating: stillRunning,
+        hasCompletedRun: job.status === "COMPLETED",
         backendAvailable: true,
         notice: "Investor demo case loaded · 7-Agent regiment reviewing corpus.",
       });
@@ -622,6 +825,8 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
     } catch {
       // Backend unavailable or demo failed, seed rich local demo case
     }
+
+    if (myEpoch !== corpusEpoch) return;
 
     if (!started) {
       const demo = buildDemoCorpus();
@@ -652,8 +857,9 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         activeJob: job,
         job,
         isSimulating: true,
+        hasCompletedRun: false,
         backendAvailable: false,
-        notice: "Investor demo case loaded · 4 documents active in corpus.",
+        notice: `Investor demo case loaded · ${demo.documents.length} documents active in corpus.`,
       });
 
       void get().loadSummary(get().summaryParams, true);

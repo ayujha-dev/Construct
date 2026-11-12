@@ -50,6 +50,8 @@ class VerificationStatus(str, enum.Enum):
     NEEDS_HUMAN_VERIFICATION = "NEEDS_HUMAN_VERIFICATION"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
     ESCALATED_LEGAL = "ESCALATED_LEGAL"
+    HUMAN_OVERRIDE = "HUMAN_OVERRIDE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class ResolvedByTier(str, enum.Enum):
@@ -139,6 +141,13 @@ class WorkItem(Base):
     escalated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     original_priority_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
     previous_state_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    human_override_reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    no_evidence_attestation: Mapped[bool] = mapped_column(Boolean, default=False)
+    override_locator: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    weak_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    weak_evidence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_quality: Mapped[str] = mapped_column(String(20), default="missing")
+    temporal_conflict: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     @property
@@ -204,10 +213,15 @@ class ExecutiveSummaryRecord(Base):
     latest_only: Mapped[bool] = mapped_column(Boolean, default=False)
     total_work_items: Mapped[int] = mapped_column(Integer, default=0)
     verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    human_override_count: Mapped[int] = mapped_column(Integer, default=0)
     unresolved_count: Mapped[int] = mapped_column(Integer, default=0)
     escalated_legal_count: Mapped[int] = mapped_column(Integer, default=0)
+    not_applicable_count: Mapped[int] = mapped_column(Integer, default=0)
     critical_count: Mapped[int] = mapped_column(Integer, default=0)
-    defensibility_score: Mapped[float] = mapped_column(Float, default=0.0)
+    critical_open_count: Mapped[int] = mapped_column(Integer, default=0)
+    high_open_count: Mapped[int] = mapped_column(Integer, default=0)
+    weak_evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    defensibility_score: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     summary_text: Mapped[str] = mapped_column(Text)
     markdown: Mapped[str] = mapped_column(Text)
     key_findings: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)

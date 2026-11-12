@@ -9,6 +9,7 @@ from bert.agents.arbiter import resolve_conflicts
 from bert.agents.ranger import ExtractedFact
 from bert.models.documents import Document, PriorityTier, VerificationStatus, WorkItem
 from bert.verification.citation_gate import VerificationResult
+from bert.verification.metrics import compute_work_item_metrics
 
 
 def _enum_value(value: Any) -> str:
@@ -61,9 +62,14 @@ def build_executive_summary(
             loc = fact.get("locator") or {}
             if loc.get("doc_id") == target_str:
                 return True
+        tc = item.temporal_conflict or {}
+        if tc.get("newer_doc_id") == target_str or tc.get("older_doc_id") == target_str:
+            return True
         return False
 
     def matches_latest(item: WorkItem) -> bool:
+        if item.item_type == "TEMPORAL_CONFLICT":
+            return True
         if item.document_id and str(item.document_id) in superseded_doc_ids:
             return False
         citations = item.verified_citations or []
@@ -94,20 +100,18 @@ def build_executive_summary(
 
     filtered_items.sort(key=lambda item: (-int(item.priority_score), item.created_at))
 
-    total = len(filtered_items)
-    verified_count = sum(
-        1 for item in filtered_items if _enum_value(item.verification_status) == VerificationStatus.VERIFIED.value
-    )
-    escalated_legal_count = sum(
-        1
-        for item in filtered_items
-        if _enum_value(item.verification_status) == VerificationStatus.ESCALATED_LEGAL.value
-    )
-    unresolved_count = total - verified_count
-    critical_count = sum(
-        1 for item in filtered_items if _enum_value(item.priority_tier) == PriorityTier.P0_CRITICAL.value
-    )
-    defensibility_score = round((verified_count / total) * 100.0, 1) if total > 0 else 0.0
+    metrics = compute_work_item_metrics(filtered_items)
+    total = metrics["total"]
+    verified_count = metrics["machine_verified"]
+    human_override_count = metrics["human_override"]
+    escalated_legal_count = metrics["escalated_legal"]
+    not_applicable_count = metrics["not_applicable"]
+    unresolved_count = metrics["unresolved"]
+    critical_count = metrics["critical_total"]
+    critical_open_count = metrics["critical_open"]
+    high_open_count = metrics["high_open"]
+    weak_evidence_count = metrics["weak_evidence_count"]
+    defensibility_score = metrics["defensibility_score"]
 
     arbiter = arbiter_resolutions if arbiter_resolutions is not None else resolve_conflicts(documents)
     latest_docs = list(arbiter.get("latest_documents", []))
@@ -157,11 +161,15 @@ def build_executive_summary(
             f"- Scope: {scope_label}",
             f"- Documents in scope: {len(scoped_docs)}",
             "- Work items processed: 0",
-            "- Evidence-verified items: 0",
-            "- Open human escalations: 0",
+            "- Machine-verified items: 0",
+            "- Human overrides (HUMAN_OVERRIDE): 0",
             "- Legal escalations (ESCALATED_LEGAL): 0",
-            "- Critical P0 items: 0",
-            "- Defensibility score: 0.0%",
+            "- Marked N/A (NOT_APPLICABLE): 0",
+            "- Unresolved items: 0",
+            "- Critical P0 items (total / open): 0 / 0",
+            "- High P1 open items: 0",
+            "- Weak-evidence items: 0",
+            "- Defensibility score: N/A (no findings)",
             "",
             "## Findings",
             "",
@@ -174,21 +182,32 @@ def build_executive_summary(
             "latest_only": latest_only,
             "total_work_items": 0,
             "verified_count": 0,
+            "human_override_count": 0,
             "unresolved_count": 0,
             "escalated_legal_count": 0,
+            "not_applicable_count": 0,
             "critical_count": 0,
-            "defensibility_score": 0.0,
+            "critical_open_count": 0,
+            "high_open_count": 0,
+            "weak_evidence_count": 0,
+            "defensibility_score": None,
             "summary_text": summary_text,
             "markdown": "\n".join(markdown_lines) + "\n",
             "key_findings": [],
             "arbiter_resolutions": arbiter,
         }
 
+    score_label = f"{defensibility_score}%" if defensibility_score is not None else "N/A"
     sentences = [
         f"Envoy reviewed {total} finding(s) across {len(scoped_docs)} document(s) ({scope_label}): "
-        f"{verified_count} verified ({defensibility_score:.1f}% defensibility), "
-        f"{unresolved_count} unresolved ({critical_count} P0 critical)."
+        f"{verified_count} machine-verified ({score_label} defensibility), "
+        f"{human_override_count} human-overridden, {not_applicable_count} N/A, "
+        f"{escalated_legal_count} legal-escalated, {unresolved_count} unresolved ({critical_open_count}/{critical_count} P0 open)."
     ]
+    if human_override_count > 0:
+        sentences.append(
+            f"{human_override_count} finding(s) carry HUMAN_OVERRIDE attestations and remain excluded from the machine-verified defensibility numerator."
+        )
     if escalated_legal_count > 0:
         legal_items = [
             item
@@ -222,11 +241,15 @@ def build_executive_summary(
         f"- Scope: {scope_label}",
         f"- Documents in scope: {len(scoped_docs)}",
         f"- Work items processed: {total}",
-        f"- Evidence-verified items: {verified_count}",
-        f"- Open human escalations: {unresolved_count}",
+        f"- Machine-verified items: {verified_count}",
+        f"- Human overrides (HUMAN_OVERRIDE): {human_override_count}",
         f"- Legal escalations (ESCALATED_LEGAL): {escalated_legal_count}",
-        f"- Critical P0 items: {critical_count}",
-        f"- Defensibility score: {defensibility_score:.1f}%",
+        f"- Marked N/A (NOT_APPLICABLE): {not_applicable_count}",
+        f"- Unresolved items: {unresolved_count}",
+        f"- Critical P0 items (total / open): {critical_count} / {critical_open_count}",
+        f"- High P1 open items: {high_open_count}",
+        f"- Weak-evidence items: {weak_evidence_count}",
+        f"- Defensibility score: {score_label}",
         "",
         "## Arbiter Conflict Resolution",
         f"- Authoritative sources: {', '.join(latest_docs) or 'None'}",
@@ -244,6 +267,10 @@ def build_executive_summary(
                 meta_bits.append(f"assignee={item.escalation_assignee}")
             if item.escalation_reason:
                 meta_bits.append(f"reason={item.escalation_reason}")
+        if status == VerificationStatus.HUMAN_OVERRIDE.value and item.human_override_reason_code:
+            meta_bits.append(f"reason_code={item.human_override_reason_code}")
+        if item.weak_evidence:
+            meta_bits.append("weak_evidence=true")
         citations = item.verified_citations or []
         if citations:
             cit = citations[0]
@@ -271,9 +298,14 @@ def build_executive_summary(
         "latest_only": latest_only,
         "total_work_items": total,
         "verified_count": verified_count,
+        "human_override_count": human_override_count,
         "unresolved_count": unresolved_count,
         "escalated_legal_count": escalated_legal_count,
+        "not_applicable_count": not_applicable_count,
         "critical_count": critical_count,
+        "critical_open_count": critical_open_count,
+        "high_open_count": high_open_count,
+        "weak_evidence_count": weak_evidence_count,
         "defensibility_score": defensibility_score,
         "summary_text": summary_text,
         "markdown": "\n".join(markdown_lines) + "\n",

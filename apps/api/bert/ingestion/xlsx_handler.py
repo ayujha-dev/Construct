@@ -127,7 +127,7 @@ class XLSXHandler:
         output: Path | BinaryIO | None = None,
         include_escalation_columns: bool | None = None,
     ) -> Path | bytes:
-        """Write response/status columns to `output` (`BytesIO`/path) without mutating `file_path`."""
+        """Write response/status/governance columns to `output` (`BytesIO`/path) without mutating `file_path`."""
         write_escalation = include_escalation_columns if include_escalation_columns is not None else (output is not None)
         workbook = load_workbook(str(file_path))
         try:
@@ -136,27 +136,33 @@ class XLSXHandler:
             status_index = output_index + 1
             sheet.cell(row=1, column=output_index, value=output_column)
             sheet.cell(row=1, column=status_index, value=status_column)
-            assignee_index = status_index + 1
-            reason_index = status_index + 2
+
+            extra_headers = [
+                ("Original_Priority", "original_priority_tier"),
+                ("Effective_Priority", "effective_priority_tier"),
+                ("Review_Warning", "review_warning"),
+                ("Reason_Code", "reason_code"),
+                ("Reviewer_Note", "reviewer_note"),
+                (assignee_column, "escalation_assignee"),
+                (reason_column, "escalation_reason"),
+                ("Weak_Evidence", "weak_evidence_flag"),
+            ]
             if write_escalation:
-                sheet.cell(row=1, column=assignee_index, value=assignee_column)
-                sheet.cell(row=1, column=reason_index, value=reason_column)
+                for offset, (header_name, _) in enumerate(extra_headers, start=1):
+                    sheet.cell(row=1, column=status_index + offset, value=header_name)
 
             for result in results:
                 row_index = int(result["row_index"])
                 sheet.cell(row=row_index, column=output_index, value=str(result.get("fluent_output", "")))
                 sheet.cell(row=row_index, column=status_index, value=str(result.get("verification_status", "")))
                 if write_escalation:
-                    sheet.cell(
-                        row=row_index,
-                        column=assignee_index,
-                        value=str(result.get("escalation_assignee") or ""),
-                    )
-                    sheet.cell(
-                        row=row_index,
-                        column=reason_index,
-                        value=str(result.get("escalation_reason") or ""),
-                    )
+                    for offset, (_, key) in enumerate(extra_headers, start=1):
+                        val = result.get(key)
+                        if key == "weak_evidence_flag" and val is None:
+                            is_weak = bool(result.get("weak_evidence"))
+                            weak_reason = str(result.get("weak_evidence_reason") or "").strip()
+                            val = f"YES: {weak_reason}" if (is_weak and weak_reason) else ("YES" if is_weak else "NO")
+                        sheet.cell(row=row_index, column=status_index + offset, value="" if val is None else str(val))
 
             if output is None:
                 workbook.save(str(file_path))

@@ -21,9 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bert.agents.controller import JobController
 from bert.agents.pipeline import (
+    _min_words_for_node,
     persist_executive_summary,
     persist_ingestion_stream,
     run_regiment,
+    summary_ws_payload,
     verify_node_region,
 )
 from bert.api.schemas import (
@@ -32,6 +34,7 @@ from bert.api.schemas import (
     CitationMatch,
     CopilotChatRequest,
     CopilotChatResponse,
+    CorpusResetResponse,
     DocumentResponse,
     EscalationActionRequest,
     EscalationResponse,
@@ -39,6 +42,7 @@ from bert.api.schemas import (
     JobExecutionResponse,
     JobResumeRequest,
     JobStartRequest,
+    MetricsResponse,
     SandboxRequest,
     SandboxResponse,
     SeedResponse,
@@ -71,6 +75,7 @@ from bert.verification.citation_gate import (
     payload_hash,
     run_verification_gate,
 )
+from bert.verification.metrics import compute_work_item_metrics
 
 
 @asynccontextmanager
@@ -122,9 +127,38 @@ async def startup() -> None:
             "escalated_by": "ALTER TABLE work_items ADD COLUMN escalated_by VARCHAR(200)",
             "original_priority_tier": "ALTER TABLE work_items ADD COLUMN original_priority_tier VARCHAR(20)",
             "previous_state_snapshot": "ALTER TABLE work_items ADD COLUMN previous_state_snapshot JSON",
+            "human_override_reason_code": "ALTER TABLE work_items ADD COLUMN human_override_reason_code VARCHAR(120)",
+            "no_evidence_attestation": "ALTER TABLE work_items ADD COLUMN no_evidence_attestation BOOLEAN DEFAULT 0",
+            "override_locator": "ALTER TABLE work_items ADD COLUMN override_locator JSON",
+            "weak_evidence": "ALTER TABLE work_items ADD COLUMN weak_evidence BOOLEAN DEFAULT 0",
+            "weak_evidence_reason": "ALTER TABLE work_items ADD COLUMN weak_evidence_reason TEXT",
+            "evidence_quality": "ALTER TABLE work_items ADD COLUMN evidence_quality VARCHAR(20) DEFAULT 'missing'",
+            "temporal_conflict": "ALTER TABLE work_items ADD COLUMN temporal_conflict JSON",
         }
         for col_name, ddl in work_item_migrations.items():
             if col_name not in work_item_columns:
+                await connection.execute(text(ddl))
+
+        summary_column_info = await connection.run_sync(
+            lambda sync_connection: inspect(sync_connection).get_columns("executive_summaries")
+        )
+        score_col = next((col for col in summary_column_info if col["name"] == "defensibility_score"), None)
+        if score_col is not None and score_col.get("nullable") is False:
+            await connection.run_sync(ExecutiveSummaryRecord.__table__.drop)
+            await connection.run_sync(ExecutiveSummaryRecord.__table__.create)
+            summary_column_info = await connection.run_sync(
+                lambda sync_connection: inspect(sync_connection).get_columns("executive_summaries")
+            )
+        summary_columns = {column["name"] for column in summary_column_info}
+        summary_migrations = {
+            "human_override_count": "ALTER TABLE executive_summaries ADD COLUMN human_override_count INTEGER DEFAULT 0",
+            "not_applicable_count": "ALTER TABLE executive_summaries ADD COLUMN not_applicable_count INTEGER DEFAULT 0",
+            "critical_open_count": "ALTER TABLE executive_summaries ADD COLUMN critical_open_count INTEGER DEFAULT 0",
+            "high_open_count": "ALTER TABLE executive_summaries ADD COLUMN high_open_count INTEGER DEFAULT 0",
+            "weak_evidence_count": "ALTER TABLE executive_summaries ADD COLUMN weak_evidence_count INTEGER DEFAULT 0",
+        }
+        for col_name, ddl in summary_migrations.items():
+            if col_name not in summary_columns:
                 await connection.execute(text(ddl))
 
 
@@ -206,7 +240,11 @@ async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
 
     source_texts = [node.verbatim_text for _, node, _ in ranked]
     claimed_quote = selected_node.verbatim_text
-    gate = run_verification_gate([claimed_quote], source_texts)
+    gate = run_verification_gate(
+        [claimed_quote],
+        source_texts,
+        min_quote_words=_min_words_for_node(selected_node, claimed_quote),
+    )
     region_passed, region_match_score = verify_node_region(selected_node, selected_document, claimed_quote)
     if not gate.passed or not region_passed:
         return _insufficient_copilot_response()
@@ -330,6 +368,10 @@ async def _upload_document(file: UploadFile) -> Document:
             storage_path=str(destination),
         )
         document.file_size_bytes = destination.stat().st_size
+        if source_format not in {SourceFormat.XLSX, SourceFormat.JSON_CONFIG}:
+            year_match = re.search(r"(19\d{2}|20\d{2})", filename)
+            if year_match:
+                document.effective_date = date(int(year_match.group(1)), 1, 1)
         complete = await verify_ingestion_completeness(session, document.id, document.ast_checksum)
         await session.commit()
         if not complete:
@@ -349,27 +391,88 @@ async def ingest(file: UploadFile = File(...)) -> Document:
 
 @app.post("/api/v1/demo/seed", response_model=SeedResponse)
 async def seed_demo() -> SeedResponse:
+    await job_controller.cancel_active_jobs()
     workspace_id = uuid4()
     batch_id = uuid4()
     fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
     async with SessionFactory() as session:
         documents_to_process = await _prepare_demo_documents(session, workspace_id, fixture_paths)
         work = await run_regiment(session, workspace_id, batch_id, documents_to_process, manager.sink)
+        metrics = compute_work_item_metrics(work)
         return SeedResponse(
             workspace_id=workspace_id,
             batch_id=batch_id,
             document_count=len(documents_to_process),
             work_item_count=len(work),
-            critical_count=sum(1 for item in work if _enum_value(item.priority_tier) == "P0_CRITICAL"),
+            critical_count=metrics["critical_total"],
+            verified_count=metrics["machine_verified"],
+            unresolved_count=metrics["unresolved"],
+            defensibility_score=metrics["defensibility_score"],
         )
 
 
 @app.post("/api/v1/jobs/demo", response_model=JobExecutionResponse)
 async def start_demo_job() -> dict[str, Any]:
-    """Start a background demo run that can be paused between atomic agent steps."""
-    state = await job_controller.create(uuid4(), uuid4())
-    asyncio.create_task(_run_demo_job(state.job_id))
+    """Prepare all demo documents synchronously, then run the 7-agent regiment in background."""
+    await job_controller.cancel_active_jobs()
+    workspace_id = uuid4()
+    batch_id = uuid4()
+    fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
+    async with SessionFactory() as session:
+        documents_to_process = await _prepare_demo_documents(session, workspace_id, fixture_paths)
+    document_ids = [doc.id for doc in documents_to_process]
+    state = await job_controller.create(workspace_id, batch_id)
+    asyncio.create_task(_run_demo_job(state.job_id, document_ids))
     return job_controller.snapshot(state)
+
+
+@app.post("/api/v1/corpus/reset", response_model=CorpusResetResponse)
+async def reset_corpus() -> CorpusResetResponse:
+    """Atomically wipe active corpus tables and cancel any running background jobs."""
+    await job_controller.cancel_active_jobs()
+    async with SessionFactory() as session:
+        del_nodes = await session.execute(delete(ASTNode))
+        del_items = await session.execute(delete(WorkItem))
+        del_logs = await session.execute(delete(AuditLog))
+        del_sums = await session.execute(delete(ExecutiveSummaryRecord))
+        del_jobs = await session.execute(delete(JobExecution))
+        del_docs = await session.execute(delete(Document))
+        await session.commit()
+    await manager.sink.publish({"type": "corpus_reset"})
+    return CorpusResetResponse(
+        status="reset",
+        deleted_documents=int(del_docs.rowcount or 0),
+        deleted_ast_nodes=int(del_nodes.rowcount or 0),
+        deleted_work_items=int(del_items.rowcount or 0),
+        deleted_audit_logs=int(del_logs.rowcount or 0),
+        deleted_summaries=int(del_sums.rowcount or 0),
+        deleted_jobs=int(del_jobs.rowcount or 0),
+    )
+
+
+@app.get("/api/v1/metrics", response_model=MetricsResponse)
+async def get_metrics(
+    document_id: str | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> dict[str, Any]:
+    """Return canonical mutually exclusive work-item metrics and defensibility score."""
+    parsed_doc_id = _parse_optional_uuid(document_id)
+    async with SessionFactory() as session:
+        docs = list((await session.execute(select(Document).order_by(Document.created_at))).scalars().all())
+        items = list(
+            (await session.execute(select(WorkItem).order_by(WorkItem.priority_score.desc(), WorkItem.created_at)))
+            .scalars()
+            .all()
+        )
+    filtered = _filter_work_items_for_scope(
+        docs,
+        items,
+        document_id=parsed_doc_id,
+        only_critical=only_critical,
+        latest_only=latest_only,
+    )
+    return compute_work_item_metrics(filtered)
 
 
 @app.post("/api/v1/jobs/start", response_model=JobExecutionResponse)
@@ -424,14 +527,19 @@ async def _prepare_demo_documents(
     return documents
 
 
-async def _run_demo_job(job_id: UUID) -> None:
+async def _run_demo_job(job_id: UUID, document_ids: list[UUID]) -> None:
     state = await job_controller.get(job_id)
     if state is None:
         return
     try:
-        fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
         async with SessionFactory() as session:
-            documents_to_process = await _prepare_demo_documents(session, state.workspace_id, fixture_paths)
+            documents_to_process: list[Document] = []
+            for doc_id in document_ids:
+                record = await session.get(Document, doc_id)
+                if record is not None:
+                    documents_to_process.append(record)
+            if not documents_to_process:
+                return
             await run_regiment(
                 session,
                 state.workspace_id,
@@ -441,9 +549,13 @@ async def _run_demo_job(job_id: UUID) -> None:
                 controller=job_controller,
                 job_id=job_id,
             )
-        await job_controller.complete(job_id)
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled and current_state.status != "CANCELLED":
+            await job_controller.complete(job_id)
     except Exception as error:
-        await job_controller.fail(job_id, str(error))
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled:
+            await job_controller.fail(job_id, str(error))
 
 
 async def _run_uploaded_job(job_id: UUID, documents: list[Document]) -> None:
@@ -457,6 +569,8 @@ async def _run_uploaded_job(job_id: UUID, documents: list[Document]) -> None:
                 record = await session.get(Document, document.id)
                 if record is not None:
                     persisted.append(record)
+            if not persisted:
+                return
             await run_regiment(
                 session,
                 state.workspace_id,
@@ -466,9 +580,13 @@ async def _run_uploaded_job(job_id: UUID, documents: list[Document]) -> None:
                 controller=job_controller,
                 job_id=job_id,
             )
-        await job_controller.complete(job_id)
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled and current_state.status != "CANCELLED":
+            await job_controller.complete(job_id)
     except Exception as error:
-        await job_controller.fail(job_id, str(error))
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled:
+            await job_controller.fail(job_id, str(error))
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobExecutionResponse)
@@ -508,7 +626,15 @@ async def escalations() -> list[EscalationResponse]:
     async with SessionFactory() as session:
         result = await session.execute(
             select(WorkItem)
-            .where(WorkItem.verification_status != VerificationStatus.VERIFIED)
+            .where(
+                WorkItem.verification_status.in_(
+                    [
+                        VerificationStatus.NEEDS_HUMAN_VERIFICATION,
+                        VerificationStatus.INSUFFICIENT_EVIDENCE,
+                        VerificationStatus.ESCALATED_LEGAL,
+                    ]
+                )
+            )
             .order_by(WorkItem.priority_score.desc(), WorkItem.created_at)
         )
         items = list(result.scalars().all())
@@ -516,6 +642,7 @@ async def escalations() -> list[EscalationResponse]:
             EscalationResponse(
                 work_item_id=item.id,
                 document_id=item.document_id,
+                item_type=item.item_type,
                 reason=_escalation_display_reason(item),
                 prompt_or_question=item.prompt_or_question,
                 priority_tier=_enum_value(item.priority_tier),
@@ -526,6 +653,14 @@ async def escalations() -> list[EscalationResponse]:
                 escalated_at=item.escalated_at,
                 escalated_by=item.escalated_by,
                 original_priority_tier=item.original_priority_tier,
+                human_override_reason_code=item.human_override_reason_code,
+                no_evidence_attestation=bool(item.no_evidence_attestation),
+                override_locator=item.override_locator,
+                weak_evidence=bool(item.weak_evidence),
+                weak_evidence_reason=item.weak_evidence_reason,
+                evidence_quality=item.evidence_quality or "missing",
+                temporal_conflict=item.temporal_conflict,
+                gate_telemetry=item.gate_telemetry or {},
                 can_undo=item.can_undo,
                 verified_citations=item.verified_citations or [],
             )
@@ -570,19 +705,50 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
         if item.original_priority_tier is None:
             item.original_priority_tier = _enum_value(item.priority_tier)
 
+        override_locator_dict = request.override_locator.model_dump() if request.override_locator is not None else None
+        override_citation_text = (request.override_citation_text or "").strip()
+
         if request.action == "manual_correction":
+            if not reason_code:
+                raise HTTPException(status_code=422, detail="A non-empty reason_code is required for manual_correction")
             correction = (request.correction or "").strip()
-            if not correction:
-                raise HTTPException(status_code=422, detail="A manual correction is required")
+            words = [word for word in correction.split() if word]
+            if len(correction) < 12 or len(words) < 3:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Manual correction must be at least 12 characters and 3 words",
+                )
+            has_existing_locator = bool(item.override_locator) or any(
+                bool((cit or {}).get("locator")) for cit in (item.verified_citations or [])
+            )
+            has_evidence_support = bool(override_locator_dict or override_citation_text or has_existing_locator)
+            if not has_evidence_support and not request.no_evidence_attestation:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Manual correction requires override_locator, override_citation_text, an existing locator, or no_evidence_attestation=True",
+                )
+
             item.previous_state_snapshot = snapshot
             item.fluent_output = correction
-            item.verification_status = VerificationStatus.VERIFIED
-            item.priority_tier = PriorityTier.P2_MEDIUM
-            item.priority_score = 50
+            item.verification_status = VerificationStatus.HUMAN_OVERRIDE
+            # Preserve original priority_tier and priority_score on manual override.
             item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+            item.human_override_reason_code = reason_code
+            item.no_evidence_attestation = bool(request.no_evidence_attestation)
+            if override_locator_dict is not None:
+                item.override_locator = override_locator_dict
             item.escalation_reason = reason or item.escalation_reason
             item.escalated_by = actor
             item.escalated_at = now
+            telemetry = dict(item.gate_telemetry or {})
+            if "citation_match" not in telemetry:
+                telemetry["citation_match"] = 0.0
+            if "critical_logprob" not in telemetry:
+                telemetry["critical_logprob"] = 0.0
+            telemetry["manual_override"] = True
+            if override_citation_text:
+                telemetry["override_citation_text"] = override_citation_text
+            item.gate_telemetry = telemetry
         elif request.action == "retry":
             item.previous_state_snapshot = snapshot
             item.verification_status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
@@ -594,6 +760,7 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
             item.previous_state_snapshot = snapshot
             # Preserve original priority_tier and priority_score for legal counsel escalation.
             item.verification_status = VerificationStatus.ESCALATED_LEGAL
+            item.human_override_reason_code = reason_code or item.human_override_reason_code
             item.escalation_reason = reason or (request.correction or "").strip() or "Referred to legal counsel for review."
             item.escalation_assignee = assignee or "Legal Counsel"
             item.escalated_at = now
@@ -613,14 +780,19 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
             item.escalation_reason = reason or item.escalation_reason
             item.escalated_by = actor
             item.escalated_at = now
-        else:  # "skip"
+        else:  # "skip" or "not_applicable"
+            if not note_text and not reason_code:
+                raise HTTPException(
+                    status_code=422,
+                    detail="A non-empty note or reason_code is required to mark an item not applicable",
+                )
             item.previous_state_snapshot = snapshot
-            item.verification_status = VerificationStatus.VERIFIED
-            item.priority_tier = PriorityTier.P3_LOW
-            item.priority_score = 10
+            item.verification_status = VerificationStatus.NOT_APPLICABLE
+            # MUST NOT mutate priority_tier or priority_score for N/A resolution.
             item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
-            item.fluent_output = (request.note or "").strip() or "Marked not applicable by reviewer."
-            item.escalation_reason = reason or item.escalation_reason
+            item.human_override_reason_code = reason_code or item.human_override_reason_code
+            item.fluent_output = note_text or f"Marked not applicable ({reason_code})"
+            item.escalation_reason = reason
             item.escalated_by = actor
             item.escalated_at = now
 
@@ -638,6 +810,8 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
                         "output": item.fluent_output,
                         "assignee": item.escalation_assignee,
                         "reason": item.escalation_reason,
+                        "reason_code": item.human_override_reason_code,
+                        "no_evidence_attestation": item.no_evidence_attestation,
                     }
                 ),
                 model_name="human-review-console",
@@ -647,7 +821,10 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
                     "actor": actor,
                     "when": now.isoformat(),
                     "reason": item.escalation_reason,
-                    "reason_code": request.reason_code,
+                    "reason_code": reason_code or request.reason_code,
+                    "no_evidence_attestation": bool(request.no_evidence_attestation),
+                    "override_locator": override_locator_dict,
+                    "override_citation_text": override_citation_text or None,
                     "assignee": item.escalation_assignee,
                     "original_priority_tier": item.original_priority_tier,
                     "manual_payload": request.manual_payload,
@@ -659,17 +836,7 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
         await session.refresh(item)
 
     await manager.sink.publish({"type": "work_item", "id": str(item.id), "status": _enum_value(item.verification_status)})
-    await manager.sink.publish(
-        {
-            "type": "summary_generated",
-            "summary_id": str(summary_record.id),
-            "document_id": None,
-            "total_work_items": summary_record.total_work_items,
-            "verified_count": summary_record.verified_count,
-            "escalated_legal_count": summary_record.escalated_legal_count,
-            "defensibility_score": summary_record.defensibility_score,
-        }
-    )
+    await manager.sink.publish(summary_ws_payload(summary_record))
     return item
 
 
@@ -702,17 +869,7 @@ async def get_summary(
             latest_only=latest_only,
         )
     if generated:
-        await manager.sink.publish(
-            {
-                "type": "summary_generated",
-                "summary_id": str(record.id),
-                "document_id": str(record.document_id) if record.document_id else None,
-                "total_work_items": record.total_work_items,
-                "verified_count": record.verified_count,
-                "escalated_legal_count": record.escalated_legal_count,
-                "defensibility_score": record.defensibility_score,
-            }
-        )
+        await manager.sink.publish(summary_ws_payload(record))
     return record
 
 
@@ -736,17 +893,7 @@ async def generate_summary(
             latest_only=latest_flag,
             force_regenerate=True,
         )
-    await manager.sink.publish(
-        {
-            "type": "summary_generated",
-            "summary_id": str(record.id),
-            "document_id": str(record.document_id) if record.document_id else None,
-            "total_work_items": record.total_work_items,
-            "verified_count": record.verified_count,
-            "escalated_legal_count": record.escalated_legal_count,
-            "defensibility_score": record.defensibility_score,
-        }
-    )
+    await manager.sink.publish(summary_ws_payload(record))
     return record
 
 
@@ -773,12 +920,17 @@ async def sandbox_check(request: SandboxRequest) -> SandboxResponse:
     if request.test == "citation":
         quote = request.quote or ""
         gate = run_verification_gate([quote], ["Access control requires multifactor authentication for privileged accounts."])
+        message = (
+            "Citation accepted by the corpus gate."
+            if gate.passed
+            else (gate.fluent_output or INSUFFICIENT_EVIDENCE_OUTPUT)
+        )
         return await record(
             SandboxResponse(
                 passed=gate.passed,
-                status="VERIFIED" if gate.passed else VerificationStatus.INSUFFICIENT_EVIDENCE.value,
-                priority_tier="P2_MEDIUM" if gate.passed else PriorityTier.P0_CRITICAL.value,
-                message="Citation accepted by the corpus gate." if gate.passed else INSUFFICIENT_EVIDENCE_OUTPUT,
+                status=gate.verification_status.value,
+                priority_tier=gate.priority_tier.value,
+                message=message,
                 score=gate.best_citation_score,
             )
         )
@@ -849,13 +1001,26 @@ async def export_questionnaire() -> Response:
     rows_payload: list[dict[str, Any]] = []
     for index, item in enumerate(questionnaire_items):
         matched_row = question_row_map.get(item.prompt_or_question.strip(), index + 2)
+        status_val = _enum_value(item.verification_status)
+        effective_priority = _enum_value(item.priority_tier)
+        original_priority = item.original_priority_tier or effective_priority
+        reason_code_val = item.human_override_reason_code or (
+            item.escalation_reason if status_val in {"ESCALATED_LEGAL", "NOT_APPLICABLE"} else ""
+        ) or ""
         rows_payload.append(
             {
                 "row_index": matched_row,
                 "fluent_output": item.fluent_output,
-                "verification_status": _enum_value(item.verification_status),
+                "verification_status": status_val,
+                "original_priority_tier": original_priority,
+                "effective_priority_tier": effective_priority,
+                "review_warning": _export_review_warning(item),
+                "reason_code": reason_code_val,
+                "reviewer_note": item.escalation_reason or "",
                 "escalation_assignee": item.escalation_assignee or "",
                 "escalation_reason": item.escalation_reason or "",
+                "weak_evidence": bool(item.weak_evidence),
+                "weak_evidence_reason": item.weak_evidence_reason or "",
             }
         )
 
@@ -906,6 +1071,77 @@ def _escalation_display_reason(item: WorkItem) -> str:
     return "Evidence gate failed; source proof is insufficient for an autonomous answer."
 
 
+def _export_review_warning(item: WorkItem) -> str:
+    status = _enum_value(item.verification_status)
+    weak = bool(item.weak_evidence)
+    if status == VerificationStatus.INSUFFICIENT_EVIDENCE.value:
+        return "UNRESOLVED / INSUFFICIENT_EVIDENCE: Missing verified corpus proof — manual review required"
+    if status == VerificationStatus.NEEDS_HUMAN_VERIFICATION.value:
+        suffix = f" ({item.weak_evidence_reason})" if weak and item.weak_evidence_reason else ""
+        return f"UNRESOLVED / NEEDS_HUMAN_VERIFICATION: Requires reviewer verification{suffix}"
+    if status == VerificationStatus.ESCALATED_LEGAL.value:
+        return f"ESCALATED_LEGAL: Referred to {item.escalation_assignee or 'Legal Counsel'} — unresolved"
+    if status == VerificationStatus.HUMAN_OVERRIDE.value:
+        return "HUMAN_OVERRIDE: Manually overridden by reviewer (unverified by deterministic gate)"
+    if status == VerificationStatus.NOT_APPLICABLE.value:
+        return "NOT_APPLICABLE: Marked N/A by reviewer (original priority preserved)"
+    if weak:
+        return f"WEAK_EVIDENCE: {item.weak_evidence_reason or 'Flagged for weak supporting quote'}"
+    return ""
+
+
+def _filter_work_items_for_scope(
+    documents: list[Document],
+    work_items: list[WorkItem],
+    *,
+    document_id: UUID | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> list[WorkItem]:
+    doc_by_id = {doc.id: doc for doc in documents}
+    superseded_doc_ids = {str(doc.id) for doc in documents if not doc.is_latest_version}
+    superseded_filenames = {doc.filename for doc in documents if not doc.is_latest_version}
+
+    def matches_doc(item: WorkItem, target_id: UUID) -> bool:
+        if item.document_id == target_id:
+            return True
+        target_doc = doc_by_id.get(target_id)
+        target_str = str(target_id)
+        for cit in item.verified_citations or []:
+            loc = cit.get("locator") or {}
+            if loc.get("doc_id") == target_str:
+                return True
+            if target_doc is not None and cit.get("document_filename") == target_doc.filename:
+                return True
+        tc = item.temporal_conflict or {}
+        return tc.get("newer_doc_id") == target_str or tc.get("older_doc_id") == target_str
+
+    def matches_latest(item: WorkItem) -> bool:
+        if item.item_type == "TEMPORAL_CONFLICT":
+            return True
+        if item.document_id and str(item.document_id) in superseded_doc_ids:
+            return False
+        citations = item.verified_citations or []
+        if citations:
+            return not all(
+                (cit.get("locator") or {}).get("doc_id") in superseded_doc_ids
+                or cit.get("document_filename") in superseded_filenames
+                for cit in citations
+            )
+        return True
+
+    filtered = list(work_items)
+    if document_id is not None:
+        filtered = [item for item in filtered if matches_doc(item, document_id)]
+    if latest_only:
+        filtered = [item for item in filtered if matches_latest(item)]
+    if only_critical:
+        filtered = [
+            item for item in filtered if _enum_value(item.priority_tier) == PriorityTier.P0_CRITICAL.value
+        ]
+    return filtered
+
+
 def _snapshot_work_item(item: WorkItem) -> dict[str, Any]:
     return {
         "verification_status": _enum_value(item.verification_status),
@@ -918,6 +1154,13 @@ def _snapshot_work_item(item: WorkItem) -> dict[str, Any]:
         "escalated_at": item.escalated_at.isoformat() if item.escalated_at else None,
         "escalated_by": item.escalated_by,
         "original_priority_tier": item.original_priority_tier,
+        "human_override_reason_code": item.human_override_reason_code,
+        "no_evidence_attestation": bool(item.no_evidence_attestation),
+        "override_locator": item.override_locator,
+        "weak_evidence": bool(item.weak_evidence),
+        "weak_evidence_reason": item.weak_evidence_reason,
+        "evidence_quality": item.evidence_quality,
+        "gate_telemetry": dict(item.gate_telemetry or {}),
     }
 
 
@@ -947,6 +1190,14 @@ async def _apply_work_item_undo(
     item.escalated_at = datetime.fromisoformat(escalated_at_raw) if escalated_at_raw else None
     item.escalated_by = snap.get("escalated_by")
     item.original_priority_tier = snap.get("original_priority_tier")
+    item.human_override_reason_code = snap.get("human_override_reason_code")
+    item.no_evidence_attestation = bool(snap.get("no_evidence_attestation", False))
+    item.override_locator = snap.get("override_locator")
+    item.weak_evidence = bool(snap.get("weak_evidence", False))
+    item.weak_evidence_reason = snap.get("weak_evidence_reason")
+    item.evidence_quality = str(snap.get("evidence_quality") or "missing")
+    if "gate_telemetry" in snap:
+        item.gate_telemetry = dict(snap["gate_telemetry"] or {})
     item.previous_state_snapshot = None
 
     now = utc_now()
@@ -982,17 +1233,7 @@ async def _apply_work_item_undo(
     await session.refresh(item)
 
     await manager.sink.publish({"type": "work_item", "id": str(item.id), "status": _enum_value(item.verification_status)})
-    await manager.sink.publish(
-        {
-            "type": "summary_generated",
-            "summary_id": str(summary_record.id),
-            "document_id": None,
-            "total_work_items": summary_record.total_work_items,
-            "verified_count": summary_record.verified_count,
-            "escalated_legal_count": summary_record.escalated_legal_count,
-            "defensibility_score": summary_record.defensibility_score,
-        }
-    )
+    await manager.sink.publish(summary_ws_payload(summary_record))
     return item
 
 
@@ -1055,8 +1296,12 @@ def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
-def date_for_filename(filename: str) -> date:
-    return date(2023 if "2023" in filename else 2026, 1, 1)
+def date_for_filename(filename: str) -> date | None:
+    if "2023" in filename:
+        return date(2023, 1, 1)
+    if "2026" in filename:
+        return date(2026, 1, 1)
+    return None
 
 
 _COPILOT_STOP_WORDS = frozenset(

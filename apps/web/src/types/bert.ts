@@ -1,9 +1,11 @@
 export type PriorityTier = "P0_CRITICAL" | "P1_HIGH" | "P2_MEDIUM" | "P3_LOW";
 export type VerificationStatus =
   | "VERIFIED"
+  | "HUMAN_OVERRIDE"
   | "NEEDS_HUMAN_VERIFICATION"
   | "INSUFFICIENT_EVIDENCE"
-  | "ESCALATED_LEGAL";
+  | "ESCALATED_LEGAL"
+  | "NOT_APPLICABLE";
 export type JobStatus = "RUNNING" | "PAUSING" | "PAUSED" | "RESUMING" | "COMPLETED" | "FAILED";
 
 export interface BoundingBox {
@@ -104,6 +106,8 @@ export interface Fact {
   verbatim_quote: string;
   ast_node_id: string;
   confidence: number;
+  locator?: EvidenceLocator | null;
+  region_match_score?: number | null;
 }
 
 export interface Citation {
@@ -115,6 +119,23 @@ export interface Citation {
   locator?: EvidenceLocator | null;
   confidence_score?: number;
   region_match_score?: number | null;
+}
+
+export interface TemporalConflict {
+  newer_doc_id?: string | null;
+  newer_filename: string;
+  newer_effective_date?: string | null;
+  newer_quote: string;
+  newer_locator?: EvidenceLocator | null;
+  newer_region_match_score?: number | null;
+  older_doc_id?: string | null;
+  older_filename: string;
+  older_effective_date?: string | null;
+  older_quote: string;
+  older_locator?: EvidenceLocator | null;
+  older_region_match_score?: number | null;
+  resolution: string;
+  superseded_by?: string | null;
 }
 
 export interface WorkItem {
@@ -138,6 +159,11 @@ export interface WorkItem {
     failed_citations: unknown[];
     failed_logprobs: unknown[];
     supersession?: string | null;
+    region_match_score?: number | null;
+    weak_evidence?: boolean | null;
+    weak_evidence_reason?: string | null;
+    override_citation_text?: string | null;
+    manual_override?: boolean | null;
   };
   created_at: string;
   escalation_reason?: string | null;
@@ -145,6 +171,13 @@ export interface WorkItem {
   escalated_at?: string | null;
   escalated_by?: string | null;
   original_priority_tier?: PriorityTier | null;
+  human_override_reason_code?: string | null;
+  no_evidence_attestation?: boolean;
+  override_locator?: EvidenceLocator | null;
+  weak_evidence?: boolean;
+  weak_evidence_reason?: string | null;
+  evidence_quality?: "strong" | "weak" | "missing" | string;
+  temporal_conflict?: TemporalConflict | null;
   can_undo?: boolean;
 }
 
@@ -178,6 +211,8 @@ export interface CopilotChatResponse {
   verification_status: string;
   match_score: number;
   citations: CitationMatch[];
+  weak_evidence?: boolean;
+  weak_evidence_reason?: string | null;
 }
 
 export type CopilotChatStatus = "PENDING" | "VERIFIED" | "INSUFFICIENT_EVIDENCE";
@@ -192,6 +227,8 @@ export interface CopilotChatMessage {
   document_id: string | null;
   created_at: number;
   summarySnapshot?: ExecutiveSummary | null;
+  weak_evidence?: boolean;
+  weak_evidence_reason?: string | null;
 }
 
 export interface PipelineEvent {
@@ -224,23 +261,35 @@ export interface Escalation {
   verification_status: VerificationStatus;
   fluent_output: string;
   document_id?: string | null;
+  item_type?: string;
   escalation_reason?: string | null;
   escalation_assignee?: string | null;
   escalated_at?: string | null;
   escalated_by?: string | null;
   original_priority_tier?: PriorityTier | null;
+  human_override_reason_code?: string | null;
+  no_evidence_attestation?: boolean;
+  override_locator?: EvidenceLocator | null;
+  weak_evidence?: boolean;
+  weak_evidence_reason?: string | null;
+  evidence_quality?: string;
+  temporal_conflict?: TemporalConflict | null;
+  gate_telemetry?: WorkItem["gate_telemetry"];
   can_undo?: boolean;
   verified_citations?: Citation[];
 }
 
 export interface EscalationActionPayload {
-  action: "manual_correction" | "retry" | "skip" | "approve" | "counsel" | "undo";
+  action: "manual_correction" | "retry" | "skip" | "not_applicable" | "approve" | "counsel" | "undo";
   note?: string;
   correction?: string;
   manual_payload?: Record<string, unknown>;
   assignee?: string;
   actor?: string;
   reason_code?: string;
+  no_evidence_attestation?: boolean;
+  override_locator?: EvidenceLocator | null;
+  override_citation_text?: string | null;
 }
 
 export interface ExecutiveSummaryFinding {
@@ -262,10 +311,15 @@ export interface ExecutiveSummary {
   latest_only: boolean;
   total_work_items: number;
   verified_count: number;
+  human_override_count?: number;
   unresolved_count: number;
   escalated_legal_count: number;
+  not_applicable_count?: number;
   critical_count: number;
-  defensibility_score: number;
+  critical_open_count?: number;
+  high_open_count?: number;
+  weak_evidence_count?: number;
+  defensibility_score: number | null;
   summary_text: string;
   markdown: string;
   key_findings: ExecutiveSummaryFinding[];
@@ -276,6 +330,40 @@ export interface ExecutiveSummary {
   };
   is_stale: boolean;
   created_at: string;
+}
+
+export interface ExportWarnings {
+  has_unresolved: boolean;
+  has_escalated: boolean;
+  has_overrides: boolean;
+  has_not_applicable: boolean;
+  has_weak_evidence: boolean;
+}
+
+export interface MetricsResponse {
+  total: number;
+  machine_verified: number;
+  human_override: number;
+  escalated_legal: number;
+  not_applicable: number;
+  unresolved: number;
+  critical_total: number;
+  critical_open: number;
+  high_open: number;
+  needs_triage: number;
+  weak_evidence_count: number;
+  defensibility_score: number | null;
+  export_warnings: ExportWarnings;
+}
+
+export interface CorpusResetResponse {
+  status: string;
+  deleted_documents: number;
+  deleted_ast_nodes: number;
+  deleted_work_items: number;
+  deleted_audit_logs: number;
+  deleted_summaries: number;
+  deleted_jobs: number;
 }
 
 export interface AuditLogEntry {

@@ -17,6 +17,7 @@ export function buildDemoCorpus(): {
   const doc2Id = uid();
   const doc3Id = uid();
   const doc4Id = uid();
+  const doc5Id = uid();
 
   const doc1: Document = {
     id: doc1Id,
@@ -90,6 +91,24 @@ export function buildDemoCorpus(): {
     workspace_id: wsId,
   };
 
+  const doc5: Document = {
+    id: doc5Id,
+    filename: "Legacy_InfoSec_Policy_2023.pdf",
+    source_format: "PDF",
+    category: "Legacy Security Governance",
+    sub_category: "Superseded Policy",
+    priority_tier: "P2_MEDIUM",
+    priority_score: 42,
+    ast_checksum: "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e",
+    file_size_bytes: 412000,
+    total_pages: 3,
+    total_ast_nodes: 4,
+    processing_status: "COMPLETED",
+    effective_date: "2023-01-01",
+    is_latest_version: false,
+    workspace_id: wsId,
+  };
+
   const n1Id = uid();
   const n2Id = uid();
   const n3Id = uid();
@@ -99,9 +118,11 @@ export function buildDemoCorpus(): {
   const q2Id = uid();
   const q8Id = uid();
   const q11Id = uid();
+  const qWeakId = uid();
   const n7Id = uid();
   const j2Id = uid();
   const n8Id = uid();
+  const nLegacyPwdId = uid();
 
   // Bottom-up PDF point space coordinates calibrated for 612x792pt pages
   const nodesByDocument: Record<string, ASTNode[]> = {
@@ -350,6 +371,33 @@ export function buildDemoCorpus(): {
           checksum: doc2.ast_checksum,
         },
       },
+      {
+        id: qWeakId,
+        document_id: doc2Id,
+        node_type: "TABLE_ROW",
+        section_path: "Questionnaire Row 12",
+        verbatim_text: "Section 4 Penetration Testing",
+        structured_payload: {
+          sheet_name: "Questionnaire",
+          row_index: 12,
+          row: 12,
+          col_A: "Penetration Testing Cadence",
+          col_B: "Section 4 Penetration Testing",
+        },
+        page_number: 1,
+        bounding_box: null,
+        ocr_confidence: 1.0,
+        node_order: 5,
+        locator: {
+          source_type: "xlsx",
+          doc_id: doc2Id,
+          sheet: "Questionnaire",
+          row: 12,
+          col_range: "A12:B12",
+          node_id: qWeakId,
+          checksum: doc2.ast_checksum,
+        },
+      },
     ],
     [doc3Id]: [
       {
@@ -409,23 +457,51 @@ export function buildDemoCorpus(): {
         bounding_box: { x0: 60, y0: 32, x1: 540, y1: 112 },
         ocr_confidence: 0.81,
         node_order: 1,
-        locator: {
-          source_type: "pdf",
-          doc_id: doc4Id,
-          page: 1,
-          bbox: [60, 32, 540, 112],
-          coord_system: "pdf_user_space_bl_pt",
-          page_width: 612,
-          page_height: 792,
-          crop_box: [0, 0, 612, 792],
-          rotation: 0,
-          node_id: n8Id,
-          checksum: doc4.ast_checksum,
-          is_scan: true,
+          locator: {
+            source_type: "pdf",
+            doc_id: doc4Id,
+            page: 1,
+            bbox: [60, 32, 540, 112],
+            coord_system: "pdf_user_space_bl_pt",
+            page_width: 612,
+            page_height: 792,
+            crop_box: [0, 0, 612, 792],
+            rotation: 0,
+            node_id: n8Id,
+            checksum: doc4.ast_checksum,
+            is_scan: true,
+          },
         },
-      },
-    ],
-  };
+      ],
+      [doc5Id]: [
+        {
+          id: nLegacyPwdId,
+          document_id: doc5Id,
+          node_type: "SECTION",
+          section_path: "§ 3.2 Legacy Password Rotation (2023)",
+          verbatim_text:
+            "Service and privileged accounts must rotate static passwords every 90 days.",
+          structured_payload: null,
+          page_number: 1,
+          bounding_box: null,
+          ocr_confidence: 0.99,
+          node_order: 1,
+          locator: {
+            source_type: "pdf",
+            doc_id: doc5Id,
+            page: 1,
+            bbox: [72, 660, 520, 700],
+            coord_system: "pdf_user_space_bl_pt",
+            page_width: 612,
+            page_height: 792,
+            crop_box: [0, 0, 612, 792],
+            rotation: 0,
+            node_id: nLegacyPwdId,
+            checksum: doc5.ast_checksum,
+          },
+        },
+      ],
+    };
 
   const workItems: WorkItem[] = [
     {
@@ -635,27 +711,36 @@ export function buildDemoCorpus(): {
       workspace_id: wsId,
       batch_id: batchId,
       document_id: doc1Id,
-      item_type: "COMPLIANCE_FINDING",
+      item_type: "TEMPORAL_CONFLICT",
       category: "Temporal Conflicts",
       priority_tier: "P1_HIGH",
-      priority_score: 74,
+      original_priority_tier: "P1_HIGH",
+      priority_score: 80,
       prompt_or_question: "What is the password rotation conflict between policies?",
       fluent_output:
-        "Arbiter resolved conflict: 2026 SOC 2 supersedes 2023 legacy policy. 90-day password rotation is deprecated in favor of continuous SAML 2.0 SSO + hardware MFA.",
+        "Chronos temporal conflict detected: SOC2_Type_II_2026.pdf (2026-01-01) supersedes Legacy_InfoSec_Policy_2023.pdf (2023-01-01). 90-day static password rotation is deprecated in favor of continuous SAML 2.0 SSO + hardware MFA.",
       structured_facts: [
         {
           fact_type: "POLICY_SUPERSEDED",
-          value: "90-day rotation deprecated",
+          value: "90-day rotation deprecated (2026 supersedes 2023)",
           verbatim_quote:
-            "Access control requires multifactor authentication for privileged accounts.",
+            "Access control requires multifactor authentication for privileged accounts across all production environments.",
           ast_node_id: n1Id,
           confidence: 0.98,
+        },
+        {
+          fact_type: "LEGACY_CONFLICTING_CLAUSE",
+          value: "Legacy 90-day rotation (superseded)",
+          verbatim_quote:
+            "Service and privileged accounts must rotate static passwords every 90 days.",
+          ast_node_id: nLegacyPwdId,
+          confidence: 0.99,
         },
       ],
       verified_citations: [
         {
           quote:
-            "Access control requires multifactor authentication for privileged accounts.",
+            "Access control requires multifactor authentication for privileged accounts across all production environments.",
           ast_node_id: n1Id,
           page_number: 4,
           document_filename: doc1.filename,
@@ -664,7 +749,31 @@ export function buildDemoCorpus(): {
           confidence_score: 98.2,
           region_match_score: 98.2,
         },
+        {
+          quote:
+            "Service and privileged accounts must rotate static passwords every 90 days.",
+          ast_node_id: nLegacyPwdId,
+          page_number: 1,
+          document_filename: doc5.filename,
+          bounding_box: { x0: 72, y0: 660, x1: 520, y1: 700 },
+          locator: nodesByDocument[doc5Id][0].locator,
+          confidence_score: 99.0,
+          region_match_score: 99.0,
+        },
       ],
+      temporal_conflict: {
+        newer_doc_id: doc1Id,
+        newer_filename: doc1.filename,
+        newer_effective_date: "2026-01-01",
+        newer_quote:
+          "Access control requires multifactor authentication for privileged accounts across all production environments.",
+        older_doc_id: doc5Id,
+        older_filename: doc5.filename,
+        older_effective_date: "2023-01-01",
+        older_quote:
+          "Service and privileged accounts must rotate static passwords every 90 days.",
+        resolution: "SUPERSEDED_BY_NEWER_POLICY",
+      },
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER3_ARBITER",
       gate_telemetry: {
@@ -674,6 +783,7 @@ export function buildDemoCorpus(): {
         failed_logprobs: [],
         supersession: "2026_OVER_2023",
       },
+      evidence_quality: "strong",
       created_at: new Date(Date.now() - 2600000).toISOString(),
     },
     {
@@ -811,11 +921,59 @@ export function buildDemoCorpus(): {
       },
       created_at: new Date(Date.now() - 2000000).toISOString(),
     },
+    {
+      id: uid(),
+      workspace_id: wsId,
+      batch_id: batchId,
+      document_id: doc2Id,
+      item_type: "COMPLIANCE_FINDING",
+      category: "Security Testing",
+      priority_tier: "P1_HIGH",
+      original_priority_tier: "P1_HIGH",
+      priority_score: 65,
+      prompt_or_question: "What is the annual third-party penetration testing cadence?",
+      fluent_output:
+        "Weak evidence flagged: matched quote is a bare section heading ('Section 4 Penetration Testing') without substantive control details.",
+      structured_facts: [
+        {
+          fact_type: "CONTROL_HEADING",
+          value: "Section 4 Penetration Testing",
+          verbatim_quote: "Section 4 Penetration Testing",
+          ast_node_id: qWeakId,
+          confidence: 0.92,
+        },
+      ],
+      verified_citations: [
+        {
+          quote: "Section 4 Penetration Testing",
+          ast_node_id: qWeakId,
+          page_number: 1,
+          document_filename: doc2.filename,
+          bounding_box: null,
+          locator: nodesByDocument[doc2Id][4].locator,
+          confidence_score: 100,
+          region_match_score: 100,
+        },
+      ],
+      verification_status: "NEEDS_HUMAN_VERIFICATION",
+      resolved_by_tier: "TIER2_SLM_REGIMENT",
+      weak_evidence: true,
+      weak_evidence_reason:
+        "Bare heading / insufficient quote specificity (4 words, 29 chars) — flagged for reviewer substantiation.",
+      evidence_quality: "weak",
+      gate_telemetry: {
+        citation_match: 100,
+        critical_logprob: 0.92,
+        failed_citations: ["weak_quote_heading_only"],
+        failed_logprobs: [],
+      },
+      created_at: new Date(Date.now() - 1800000).toISOString(),
+    },
   ];
 
   return {
     workspaceId: wsId,
-    documents: [doc1, doc2, doc3, doc4],
+    documents: [doc1, doc2, doc3, doc4, doc5],
     nodesByDocument,
     workItems,
   };

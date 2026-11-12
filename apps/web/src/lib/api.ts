@@ -2,11 +2,13 @@ import type {
   ASTNode,
   AuditLogEntry,
   CopilotChatResponse,
+  CorpusResetResponse,
   Document,
   Escalation,
   EscalationActionPayload,
   ExecutiveSummary,
   JobExecution,
+  MetricsResponse,
   WorkItem,
 } from "../types/bert";
 
@@ -23,8 +25,6 @@ function buildSummaryQueryString(params?: SummaryQueryParams): string {
   const qs = new URLSearchParams();
   if (params?.document_id && params.document_id !== "ALL") {
     qs.set("document_id", params.document_id);
-  } else {
-    qs.set("document_id", "");
   }
   qs.set("only_critical", String(Boolean(params?.only_critical)));
   qs.set("latest_only", String(Boolean(params?.latest_only)));
@@ -99,6 +99,12 @@ export const bertApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
     }),
+  getMetrics: (params?: SummaryQueryParams) =>
+    request<MetricsResponse>(`/api/v1/metrics?${buildSummaryQueryString(params)}`),
+  resetCorpus: () =>
+    request<CorpusResetResponse>("/api/v1/corpus/reset", {
+      method: "POST",
+    }),
   getSummary: (params?: SummaryQueryParams) =>
     request<ExecutiveSummary>(`/api/v1/summary?${buildSummaryQueryString(params)}`),
   generateSummary: (body?: SummaryQueryParams) =>
@@ -114,4 +120,9 @@ export const bertApi = {
   exportSummaryMdUrl: (params?: SummaryQueryParams) =>
     `${API_URL}/api/v1/export/summary.md?${buildSummaryQueryString(params)}`,
   exportQuestionnaireXlsxUrl: () => `${API_URL}/api/v1/export/questionnaire.xlsx`,
+  downloadQuestionnaireXlsx: async (): Promise<Blob> => {
+    const response = await fetch(`${API_URL}/api/v1/export/questionnaire.xlsx`);
+    if (!response.ok) throw new Error((await response.text()) || `Export failed with ${response.status}`);
+    return response.blob();
+  },
 };

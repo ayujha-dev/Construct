@@ -331,11 +331,17 @@ export const tier1Tests = [
       const workItemId = escalationsRes.data[0].work_item_id;
       const res = await api.resolveEscalation(workItemId, {
         action: "manual_correction",
-        correction: "Updated compliance text",
+        correction: "Updated compliance control evidence verified by engineering",
+        reason_code: "SME_ATTESTATION",
+        no_evidence_attestation: true,
       });
 
-      assertEqual(res.status, 200, `Expected HTTP 200 on manual_correction, got ${res.status}`);
-      assertEqual(res.data?.fluent_output, "Updated compliance text", "Fluent output updated");
+      assertEqual(res.status, 200, `Expected HTTP 200 on manual_correction, got ${res.status}: ${JSON.stringify(res.data)}`);
+      assertEqual(
+        res.data?.fluent_output,
+        "Updated compliance control evidence verified by engineering",
+        "Fluent output updated"
+      );
     },
   },
   {
@@ -365,10 +371,13 @@ export const tier1Tests = [
       const escalationsRes = await api.getEscalations();
       const workItemId = escalationsRes.data[0].work_item_id;
 
-      await api.resolveEscalation(workItemId, {
+      const res = await api.resolveEscalation(workItemId, {
         action: "manual_correction",
-        correction: "AuditLog validation correction",
+        correction: "AuditLog validation correction verified by compliance reviewer",
+        reason_code: "SME_ATTESTATION",
+        no_evidence_attestation: true,
       });
+      assertEqual(res.status, 200, `Expected HTTP 200 on AuditLog manual_correction, got ${res.status}`);
 
       const auditRes = await api.getAuditLog();
       assert(auditRes.ok, "Audit log endpoint responsive");

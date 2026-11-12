@@ -416,9 +416,9 @@ async def test_envoy_summary_persistence_filters_empty_state_md_parity_and_legal
 
             full_sum = (await client.get("/api/v1/summary?document_id=&only_critical=false&latest_only=false")).json()
             full_md = (await client.get("/api/v1/export/summary.md?document_id=&only_critical=false&latest_only=false")).text
-            assert full_sum["total_work_items"] == 12
+            assert full_sum["total_work_items"] == 13
             assert full_sum["verified_count"] > 0
-            assert full_sum["unresolved_count"] == 12 - full_sum["verified_count"]
+            assert full_sum["unresolved_count"] == 13 - full_sum["verified_count"]
             assert full_sum["escalated_legal_count"] == 0
             assert full_sum["markdown"] == full_md
             assert full_sum["arbiter_resolutions"]["resolved"] is True
@@ -428,7 +428,7 @@ async def test_envoy_summary_persistence_filters_empty_state_md_parity_and_legal
             crit_md = (await client.get("/api/v1/export/summary.md?only_critical=true")).text
             assert crit_sum["only_critical"] is True
             assert crit_sum["total_work_items"] == crit_sum["critical_count"]
-            assert 0 < crit_sum["total_work_items"] < 12
+            assert 0 < crit_sum["total_work_items"] < 13
             assert all(f["priority_tier"] == "P0_CRITICAL" for f in crit_sum["key_findings"])
             assert crit_sum["markdown"] == crit_md
 
@@ -458,9 +458,16 @@ async def test_envoy_summary_persistence_filters_empty_state_md_parity_and_legal
             post_counsel_sum = (await client.get("/api/v1/summary")).json()
             post_counsel_md = (await client.get("/api/v1/export/summary.md")).text
             assert post_counsel_sum["escalated_legal_count"] == 1
-            # ESCALATED_LEGAL stays out of verified_count and inside unresolved_count.
+            # Mutually exclusive buckets: ESCALATED_LEGAL moves out of unresolved into escalated_legal_count.
             assert post_counsel_sum["verified_count"] == full_sum["verified_count"]
-            assert post_counsel_sum["unresolved_count"] == full_sum["unresolved_count"]
+            assert post_counsel_sum["unresolved_count"] == full_sum["unresolved_count"] - 1
+            assert (
+                post_counsel_sum["verified_count"]
+                + post_counsel_sum["human_override_count"]
+                + post_counsel_sum["escalated_legal_count"]
+                + post_counsel_sum["not_applicable_count"]
+                + post_counsel_sum["unresolved_count"]
+            ) == post_counsel_sum["total_work_items"]
             assert "ESCALATED_LEGAL" in post_counsel_sum["summary_text"]
             assert post_counsel_sum["markdown"] == post_counsel_md
 
