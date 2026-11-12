@@ -151,6 +151,23 @@
   animation: box-glow-pulse 1.8s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+
+  .animate-live,
+  .animate-float-slow,
+  .animate-float-delay,
+  .animate-pulse,
+  .animate-ping,
+  .spin,
+  .pdf-highlight-rect,
+  .highlight-box {
+    animation: none !important;
+  }
+}
+
 /* Shared viewer container & toolbar */
 .spreadsheet-viewer,
 .json-viewer,

@@ -11,22 +11,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-zinc-900 flex overflow-x-hidden font-ui">
+    <div className="min-h-screen bg-[#F8F9FA] text-zinc-900 flex overflow-x-clip font-ui">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[#1D4ED8] focus:text-white focus:text-xs focus:font-semibold focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[#1D4ED8] focus:text-white focus:text-xs focus:font-semibold focus:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
         Skip to main content
       </a>
 
       {isLanding ? (
-        <>
+        <div className="w-full min-h-screen flex flex-col">
           <WeTransferIconRail />
           <WeTransferTopPill />
-          <main id="main-content" className="flex-1 md:ml-16 min-h-screen overflow-y-auto min-w-0">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 md:ml-16 min-h-screen min-w-0 overflow-x-clip focus:outline-none"
+          >
             {children}
           </main>
-        </>
+        </div>
       ) : (
         <div className="flex w-full h-screen overflow-hidden relative">
           {/* Desktop persistent sidebar */}
@@ -63,7 +67,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          <main id="main-content" className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden bg-white">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden bg-white focus:outline-none"
+          >
             {/* Compact mobile navigation toggle */}
             <div className="md:hidden flex items-center justify-between px-3 py-2 border-b border-zinc-200 bg-white shrink-0">
               <button

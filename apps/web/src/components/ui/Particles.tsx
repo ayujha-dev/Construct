@@ -425,14 +425,29 @@ export const Particles = ({
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
-    const gl = canvas?.getContext('webgl2', {
+    if (!container || !canvas) return undefined;
+
+    const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null;
+    let reduce = motionQuery?.matches ?? false;
+    container.dataset.reducedMotion = reduce ? 'true' : 'false';
+
+    const gl = canvas.getContext('webgl2', {
       alpha: true,
       premultipliedAlpha: true,
       antialias: false,
       depth: false,
       stencil: false
     });
-    if (!container || !canvas || !gl) return undefined;
+    if (!gl) {
+      const onFallbackMotionChange = (event: MediaQueryListEvent) => {
+        reduce = event.matches;
+        container.dataset.reducedMotion = reduce ? 'true' : 'false';
+      };
+      motionQuery?.addEventListener('change', onFallbackMotionChange);
+      return () => {
+        motionQuery?.removeEventListener('change', onFallbackMotionChange);
+      };
+    }
 
     const dots = link(gl, PARTICLE_VERTEX, PARTICLE_FRAGMENT);
     const lines = link(gl, LINE_VERTEX, LINE_FRAGMENT);
@@ -478,7 +493,6 @@ export const Particles = ({
     gl.bindVertexArray(null);
 
     const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const cache = new Map<string, number[]>();
     const parse = (value: string): number[] => {
       const cached = cache.get(value);
@@ -796,19 +810,18 @@ export const Particles = ({
       const s = settingsRef.current;
       const dt = last ? clamp((now - last) / 1000, 0.0005, 0.05) : 1 / 60;
       last = now;
-      if (s.paused) {
+      if (s.paused || reduce) {
         state.reveal = 1;
         render();
         last = 0;
         return;
       }
-      const motion = reduce ? 0 : 1;
-      const pace = dt * s.speed * motion;
+      const pace = dt * s.speed;
       state.clock += pace;
       if (s.rotate) state.spin += pace * 0.6;
-      state.travel += dt * s.driftSpeed * motion * (s.drift === 3 ? 6 : 0.9);
+      state.travel += dt * s.driftSpeed * (s.drift === 3 ? 6 : 0.9);
 
-      const engaged = s.mouse && pointer.inside && !reduce;
+      const engaged = s.mouse && pointer.inside;
       const follow = 1 - Math.exp(-dt / 0.35);
       const parallax = engaged && s.hoverEffect === 0 ? s.hoverFactor : 0;
       state.offsetX += (-pointer.nx * parallax - state.offsetX) * follow;
@@ -830,7 +843,9 @@ export const Particles = ({
     };
 
     const wake = () => {
-      if (!raf && visible && !document.hidden) raf = requestAnimationFrame(frame);
+      if (!raf && visible && !document.hidden && !settingsRef.current.paused && !reduce) {
+        raf = requestAnimationFrame(frame);
+      }
     };
 
     const resize = () => {
@@ -890,6 +905,23 @@ export const Particles = ({
       wake();
     };
 
+    const onMotionChange = (event: MediaQueryListEvent) => {
+      reduce = event.matches;
+      container.dataset.reducedMotion = reduce ? 'true' : 'false';
+      if (reduce) {
+        if (raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
+        }
+        state.reveal = 1;
+        render();
+        last = 0;
+      } else {
+        last = 0;
+        wake();
+      }
+    };
+
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
     const intersection = new IntersectionObserver(entries => {
@@ -906,6 +938,7 @@ export const Particles = ({
     window.addEventListener('pointercancel', onPointerUp, { passive: true });
     document.documentElement.addEventListener('pointerleave', onPointerLeave);
     document.addEventListener('visibilitychange', onVisibility);
+    motionQuery?.addEventListener('change', onMotionChange);
     resize();
 
     let lastDpr = settingsRef.current.dpr;
@@ -931,6 +964,7 @@ export const Particles = ({
       window.removeEventListener('pointercancel', onPointerUp);
       document.documentElement.removeEventListener('pointerleave', onPointerLeave);
       document.removeEventListener('visibilitychange', onVisibility);
+      motionQuery?.removeEventListener('change', onMotionChange);
       gl.deleteProgram(dots.program);
       gl.deleteProgram(lines.program);
       [corners, positionBuffer, randomBuffer, colorBuffer, lineBuffer].forEach(buffer => gl.deleteBuffer(buffer));
@@ -940,9 +974,39 @@ export const Particles = ({
     };
   }, []);
 
+  const colorsSignature = palette.join(',');
   useEffect(() => {
     wakeRef.current?.();
-  });
+  }, [
+    particleCount,
+    particleSpread,
+    speed,
+    colorsSignature,
+    moveParticlesOnHover,
+    particleHoverFactor,
+    alphaParticles,
+    particleBaseSize,
+    sizeRandomness,
+    cameraDistance,
+    disableRotation,
+    pixelRatio,
+    shape,
+    glow,
+    twinkle,
+    depthOfField,
+    connections,
+    connectionDistance,
+    hoverEffect,
+    hoverRadius,
+    clickBurst,
+    drift,
+    driftSpeed,
+    variation,
+    intro,
+    opacity,
+    lightMode,
+    paused
+  ]);
 
   return (
     <div ref={containerRef} className={`particles-container${className ? ` ${className}` : ''}`} style={style}>

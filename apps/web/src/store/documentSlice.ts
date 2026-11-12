@@ -219,8 +219,123 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
   },
 
   uploadFiles: async (files) => {
-    for (const file of files) {
-      await get().uploadFile(file);
+    if (!files.length) return;
+    if (files.length === 1) {
+      await get().uploadFile(files[0]);
+      return;
+    }
+
+    const uploadedOnline: Document[] = [];
+    const remainingForLocal: File[] = [];
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      try {
+        const document = await bertApi.upload(file);
+        const job = await bertApi.startJob(document.id);
+        const hydrated = hydrateAgentStepsFromJob(job, [document, ...get().documents]);
+        uploadedOnline.push(document);
+        set((state) => ({
+          documents: [document, ...state.documents.filter((item) => item.id !== document.id)],
+          documentFiles: { ...state.documentFiles, [document.id]: file },
+          workspaceId: document.workspace_id ?? job.workspace_id ?? state.workspaceId,
+          corpusStatus: "ready",
+          corpusError: null,
+          activeJob: job,
+          job,
+          agentSteps: hydrated.agentSteps,
+          agentRuns: hydrated.agentRuns,
+          jobStartedAt: state.jobStartedAt ?? Date.now(),
+          jobCompletedAt: null,
+          isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
+          hasCompletedRun: job.status === "COMPLETED",
+          selectedDocumentId: uploadedOnline[0]?.id ?? document.id,
+          selectedFileFilterId: null,
+          selectedNodeId: null,
+          activeHighlightBox: null,
+          activeLocator: null,
+          activeCitationQuote: null,
+          activeRegionMatchScore: null,
+          backendAvailable: true,
+          notice: `Uploaded ${uploadedOnline.length} of ${files.length} files · Seven-agent review started.`,
+        }));
+        await get().loadNodes(document.id);
+      } catch {
+        remainingForLocal.push(...files.slice(i));
+        break;
+      }
+    }
+
+    if (uploadedOnline.length > 0 && remainingForLocal.length === 0) {
+      void get().loadSummary(get().summaryParams, true);
+      return;
+    }
+
+    if (remainingForLocal.length > 0) {
+      cancelLocalSimulation();
+      const workspaceId = get().workspaceId ?? uid();
+      const batchId = uid();
+      const localDocs: Document[] = [];
+      const localNodesMap: Record<string, ASTNode[]> = {};
+      const localFileMap: Record<string, File> = {};
+      const allLocalItems: ReturnType<typeof localItems> = [];
+
+      for (const file of remainingForLocal) {
+        const { document, nodes } = await parseUploadedFileLocally(file, workspaceId);
+        localDocs.push(document);
+        localNodesMap[document.id] = nodes;
+        localFileMap[document.id] = file;
+        allLocalItems.push(...localItems(document, nodes, workspaceId, batchId));
+      }
+
+      const job: JobExecution = {
+        job_id: uid(),
+        workspace_id: workspaceId,
+        batch_id: batchId,
+        status: "RUNNING",
+        current_agent_index: 0,
+        current_document_id: localDocs[0]?.id ?? null,
+        current_node_index: 0,
+        checkpoint_id: uid(),
+        completed_step_outputs: {},
+        user_override_instructions: [],
+        error_message: null,
+      };
+
+      set((state) => ({
+        documents: [
+          ...localDocs,
+          ...state.documents.filter((d) => !localDocs.some((ld) => ld.id === d.id)),
+        ],
+        nodesByDocument: { ...state.nodesByDocument, ...localNodesMap },
+        documentFiles: { ...state.documentFiles, ...localFileMap },
+        workItems: state.workItems,
+        workspaceId,
+        corpusStatus: "ready",
+        corpusError: null,
+        selectedDocumentId: localDocs[0]?.id ?? state.selectedDocumentId,
+        selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
+        activeJob: job,
+        job,
+        agentSteps: createInitialAgentSteps(job.job_id),
+        agentRuns: [],
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
+        isSimulating: true,
+        hasCompletedRun: false,
+        backendAvailable: false,
+        notice: `Uploaded ${localDocs.length} file${localDocs.length === 1 ? "" : "s"} · Running local 7-agent verification.`,
+      }));
+
+      void runLocalMultiAgentReview(set, get, localDocs, job, {
+        nodesByDocument: localNodesMap,
+        workItems: allLocalItems,
+      });
     }
   },
 });
