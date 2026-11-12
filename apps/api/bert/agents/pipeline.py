@@ -1,4 +1,4 @@
-"""Deterministic implementation of the seven-stage regiment with locator propagation."""
+"""Deterministic implementation of the seven-stage review pipeline with locator propagation."""
 
 from __future__ import annotations
 
@@ -1911,6 +1911,10 @@ async def run_regiment(
             batch_id=batch_id,
         )
         raise
+
+
+# Backward-compatible pipeline alias
+run_pipeline = run_regiment
 
 
 def _category_for_question(question: str) -> str:

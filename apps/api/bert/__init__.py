@@ -1,1 +1,1 @@
-"""BERT API package."""
+"""ShieldStaff API package."""

@@ -193,7 +193,7 @@ async function testZeroFalseClaimsAndAnchors(): Promise<void> {
     "Missing-proof escalation demo displays 'Flagged -> Human Triage'"
   );
   assertEqual(VERIFICATION_GATE_PILLARS.length, 3, "3 verification gate pillars defined");
-  assertEqual(USE_CASES.length, 4, "4 BERT use cases defined");
+  assertEqual(USE_CASES.length, 4, "4 ShieldStaff use cases defined");
   assertEqual(LOCAL_MODE_GUARANTEES.length, 3, "3 local-mode guarantees defined");
 }
 

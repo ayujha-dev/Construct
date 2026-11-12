@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 
 export type ThemeMode = "light" | "dark";
 
-export const THEME_STORAGE_KEY = "bert-theme";
-export const THEME_CHANGE_EVENT = "bert-theme-change";
+export const SHIELDSTAFF_THEME_STORAGE_KEY = "shieldstaff-theme";
+export const LEGACY_THEME_STORAGE_KEY = "bert-theme";
+export const THEME_STORAGE_KEY = SHIELDSTAFF_THEME_STORAGE_KEY;
+export const THEME_CHANGE_EVENT = "shieldstaff-theme-change";
+export const LEGACY_THEME_CHANGE_EVENT = "bert-theme-change";
 
 export interface RgbColor {
   r: number;
@@ -251,7 +254,7 @@ export function getInitialTheme(storage?: Pick<Storage, "getItem"> | null): Them
         : typeof window !== "undefined"
           ? window.localStorage
           : null;
-    const raw = store?.getItem(THEME_STORAGE_KEY);
+    const raw = store?.getItem(SHIELDSTAFF_THEME_STORAGE_KEY) ?? store?.getItem(LEGACY_THEME_STORAGE_KEY);
     return normalizeTheme(raw);
   } catch {
     return "light";
@@ -298,7 +301,8 @@ export function applyTheme(
           : typeof window !== "undefined"
             ? window.localStorage
             : null;
-      store?.setItem(THEME_STORAGE_KEY, next);
+      store?.setItem(SHIELDSTAFF_THEME_STORAGE_KEY, next);
+      store?.setItem(LEGACY_THEME_STORAGE_KEY, next);
     } catch {
       // Ignore storage errors in restricted environments
     }
@@ -307,6 +311,11 @@ export function applyTheme(
   if (typeof window !== "undefined" && typeof CustomEvent === "function") {
     window.dispatchEvent(
       new CustomEvent<{ theme: ThemeMode }>(THEME_CHANGE_EVENT, {
+        detail: { theme: next },
+      })
+    );
+    window.dispatchEvent(
+      new CustomEvent<{ theme: ThemeMode }>(LEGACY_THEME_CHANGE_EVENT, {
         detail: { theme: next },
       })
     );
@@ -331,7 +340,7 @@ export function subscribeSystemOrToggle(listener: (theme: ThemeMode) => void): (
   };
 
   const onStorage = (event: StorageEvent) => {
-    if (event.key === THEME_STORAGE_KEY) {
+    if (event.key === SHIELDSTAFF_THEME_STORAGE_KEY || event.key === LEGACY_THEME_STORAGE_KEY) {
       const next = normalizeTheme(event.newValue);
       applyTheme(next, { persist: false });
       listener(next);
@@ -339,9 +348,11 @@ export function subscribeSystemOrToggle(listener: (theme: ThemeMode) => void): (
   };
 
   window.addEventListener(THEME_CHANGE_EVENT, onCustom);
+  window.addEventListener(LEGACY_THEME_CHANGE_EVENT, onCustom);
   window.addEventListener("storage", onStorage);
   return () => {
     window.removeEventListener(THEME_CHANGE_EVENT, onCustom);
+    window.removeEventListener(LEGACY_THEME_CHANGE_EVENT, onCustom);
     window.removeEventListener("storage", onStorage);
   };
 }

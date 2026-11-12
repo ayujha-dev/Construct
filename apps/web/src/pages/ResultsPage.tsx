@@ -298,7 +298,7 @@ export function ResultsPage() {
   // Export functions (gated + pre-export warning confirmation + backend XLSX integration)
   const performExportXlsx = async () => {
     setExportWarningOpen(false);
-    const filename = `BERT_Compliance_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `ShieldStaff_Compliance_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     const useBackendDownload =
       backendAvailable &&
@@ -326,7 +326,7 @@ export function ResultsPage() {
     const dataToExport = buildXlsxExportRows(filteredItems, documents);
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "BERT_Verified_Findings");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "ShieldStaff_Verified_Findings");
     XLSX.writeFile(workbook, filename);
 
     showTransientToast("Exported audited compliance workbook (.XLSX)");
@@ -384,7 +384,7 @@ export function ResultsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `BERT_Executive_Summary_${new Date().toISOString().slice(0, 10)}.md`;
+    link.download = `ShieldStaff_Executive_Summary_${new Date().toISOString().slice(0, 10)}.md`;
     link.click();
     URL.revokeObjectURL(url);
 

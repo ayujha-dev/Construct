@@ -287,7 +287,7 @@ export function CopilotStream() {
             Review Copilot
           </h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Ask anything about your corpus or steer the active 7-agent regiment with real-time checkpointing.
+            Ask anything about your corpus or steer the active 7-agent review pipeline with real-time checkpointing.
           </p>
         </div>
 

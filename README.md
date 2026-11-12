@@ -1,12 +1,12 @@
-# BERT — Zero-Hallucination Document Intelligence Platform
+# ShieldStaff — Evidence-Verified Document Intelligence Platform
 
-BERT is an evidence-first document intelligence platform and conversational copilot for security, compliance, and high-stakes contract work. It accepts real PDF, XLSX, JSON, TXT, and Markdown files, decomposes them into an immutable Abstract Syntax Tree (AST), runs the seven-agent "Marshal Berthier" regiment, mathematically verifies citations with `rapidfuzz >= 97%`, and produces executive-ready outputs backed by deterministic substring citation checks.
+ShieldStaff is an evidence-first document intelligence platform and conversational copilot for security, compliance, and high-stakes contract work. It accepts real PDF, XLSX, JSON, TXT, and Markdown files, decomposes them into an immutable Abstract Syntax Tree (AST), runs the seven-agent review pipeline, mathematically verifies citations with `rapidfuzz >= 97%`, and produces executive-ready outputs backed by deterministic substring citation checks.
 
 ---
 
 ## Visual & Design Architecture (WeTransfer + Replit + Attio CRM)
 
-BERT's frontend has been completely redesigned from the ground up to match the daylight-first editorial and precision SaaS visual language of our reference systems:
+ShieldStaff's frontend has been completely redesigned from the ground up to match the daylight-first editorial and precision SaaS visual language of our reference systems:
 
 1. **Theme Tokens & Design System (`apps/web/src/index.css`)**:
    - **Primary Workspace Canvas**: Warm Alabaster / Porcelain (`#F8F9FA` / `#F7F7F5`) with crisp white elevated cards and subtle borders (`1px solid #E5E7EB`).
@@ -17,7 +17,7 @@ BERT's frontend has been completely redesigned from the ground up to match the d
 
 2. **Dual Navigation Shells**:
    - **Landing / Intake (`/`) — WeTransfer Floating Shell**:
-     - `WeTransferIconRail`: Narrow 64px white icon rail with BERT monogram and minimal navigation icons (`Upload`, `Copilot`, `Canvas`, `Reports`, `Audit`).
+     - `WeTransferIconRail`: Narrow 64px white icon rail with ShieldStaff monogram and minimal navigation icons (`Upload`, `Copilot`, `Canvas`, `Reports`, `Audit`).
      - `WeTransferTopPill`: Floating top-right pill with quick links and active workspace mode indicator.
    - **Inside Application (`/workspace` & `/results`) — Attio CRM / Replit Structured Sidebar**:
      - `AttioSidebar` (`w-60`): Workspace header, `+ Upload Document or Sheet` and `⚡ Load Investor Demo Case` action buttons, route navigation with live escalation counters, an **Active Corpus** section with colored squircle badges (Blue PDF, Emerald XLS, Amber JSN, Rose SCN), and bottom review progress bar.
@@ -41,7 +41,7 @@ BERT's frontend has been completely redesigned from the ground up to match the d
 
 ---
 
-## 7-Agent "Marshal Berthier" Regiment
+## 7-Agent Review Pipeline
 
 ```text
 Scout → Quartermaster → Chronos → Vanguard → Ranger → Arbiter → Envoy
@@ -64,7 +64,7 @@ Scout → Quartermaster → Chronos → Vanguard → Ranger → Arbiter → Envo
 ```bash
 cd apps/api
 source .venv/bin/activate
-uvicorn bert.main:app --reload --port 8000
+uvicorn shieldstaff.main:app --reload --port 8000
 ```
 
 ### 2. Web

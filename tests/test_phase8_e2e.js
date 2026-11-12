@@ -29,14 +29,23 @@ const ROOT_DIR = path.resolve(".");
 const API_DIR = path.join(ROOT_DIR, "apps", "api");
 const WEB_DIR = path.join(ROOT_DIR, "apps", "web");
 
-const EXTERNAL_SERVERS = process.env.BERT_EXTERNAL_SERVERS === "1";
-const API_PORT = parseInt(process.env.BERT_PHASE8_API_PORT || "18018", 10);
-const WEB_PORT = parseInt(process.env.BERT_PHASE8_WEB_PORT || "15178", 10);
+const EXTERNAL_SERVERS =
+  process.env.SHIELDSTAFF_EXTERNAL_SERVERS === "1" || process.env.BERT_EXTERNAL_SERVERS === "1";
+const API_PORT = parseInt(
+  process.env.SHIELDSTAFF_PHASE8_API_PORT || process.env.BERT_PHASE8_API_PORT || "18018",
+  10
+);
+const WEB_PORT = parseInt(
+  process.env.SHIELDSTAFF_PHASE8_WEB_PORT || process.env.BERT_PHASE8_WEB_PORT || "15178",
+  10
+);
 const CHROME_PORT = parseInt(process.env.CHROME_PORT || "19228", 10);
 
-const API_URL = process.env.BERT_API_URL || `http://127.0.0.1:${API_PORT}`;
-const WEB_URL = process.env.BERT_WEB_URL || `http://127.0.0.1:${WEB_PORT}`;
-const TEMP_DB_PATH = `/tmp/bert_phase8_${API_PORT}.db`;
+const API_URL =
+  process.env.SHIELDSTAFF_API_URL || process.env.BERT_API_URL || `http://127.0.0.1:${API_PORT}`;
+const WEB_URL =
+  process.env.SHIELDSTAFF_WEB_URL || process.env.BERT_WEB_URL || `http://127.0.0.1:${WEB_PORT}`;
+const TEMP_DB_PATH = `/tmp/shieldstaff_phase8_${API_PORT}.db`;
 
 async function waitForHttp(url, timeoutMs = 20000) {
   const start = Date.now();
@@ -432,6 +441,7 @@ async function runPhase8BrowserSuite() {
     await runCase("8.2 Light theme default & WCAG AA (>=4.5:1) contrast audit across /, /workspace, /triage, /results", async () => {
       await page.goto(`${WEB_URL}/`, { sleepAfter: 600 });
       await page.evaluate(() => {
+        localStorage.removeItem("shieldstaff-theme");
         localStorage.removeItem("bert-theme");
       });
       await page.send("Page.reload");

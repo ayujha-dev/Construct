@@ -144,3 +144,5 @@ export const bertApi = {
     return response.blob();
   },
 };
+
+export const shieldStaffApi = bertApi;

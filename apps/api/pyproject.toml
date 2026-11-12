@@ -1,7 +1,7 @@
 [project]
-name = "bert-api"
+name = "shieldstaff"
 version = "0.1.0"
-description = "BERT interactive vertical slice API"
+description = "ShieldStaff interactive vertical slice API"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",

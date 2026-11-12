@@ -292,7 +292,7 @@ export function LandingPage() {
                 <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <span className="font-medium">Pipeline</span>
                   <span className="font-mono text-[11px] text-[var(--text-secondary)] tabular-nums">
-                    7-Agent Regiment
+                    7-Agent Pipeline
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
@@ -350,7 +350,7 @@ export function LandingPage() {
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left min-w-0">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-hero-card)] text-[#B8DCF2] border border-[#2F4461] text-xs font-mono">
               <span className="w-2 h-2 rounded-full bg-[#82C4EC]" />
-              <span>BERT · DETERMINISTIC EVIDENCE VERIFICATION</span>
+              <span>ShieldStaff · DETERMINISTIC EVIDENCE VERIFICATION</span>
             </div>
 
             <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-[#F4F1EA]">
@@ -440,7 +440,7 @@ export function LandingPage() {
                 Inspect how every claim resolves to source proof—or fails closed.
               </h2>
               <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                Step through real BERT verification cases: SOC 2 MFA, AWS IAM{" "}
+                Step through real ShieldStaff verification cases: SOC 2 MFA, AWS IAM{" "}
                 <code className="px-1 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-mono">
                   s3:*
                 </code>{" "}
@@ -639,13 +639,13 @@ export function LandingPage() {
         <div className="max-w-6xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
-              7-AGENT REGIMENT PIPELINE
+              7-AGENT REVIEW PIPELINE
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
               Scout through Envoy: seven specialized deterministic stages.
             </h2>
             <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
-              BERT separates OCR rescue, classification, temporal tracking, risk scoring,
+              ShieldStaff separates OCR rescue, classification, temporal tracking, risk scoring,
               structured fact extraction, conflict resolution, and verified synthesis into
               checkpointed stages you can pause and steer mid-run.
             </p>
@@ -742,13 +742,13 @@ export function LandingPage() {
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
           <div className="lg:col-span-5 space-y-4">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#D2E8F7]">
-              BERT USE CASES
+              SHIELDSTAFF USE CASES
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-white">
               Built for messy compliance corpora across four native formats.
             </h2>
             <p className="text-sm text-[#EBF2F7] leading-relaxed">
-              Select any workflow to inspect how BERT parses source geometry, anchors locators,
+              Select any workflow to inspect how ShieldStaff parses source geometry, anchors locators,
               and routes edge cases to human reviewers.
             </p>
             <div className="pt-2">
@@ -836,7 +836,7 @@ export function LandingPage() {
               Local SQLite, deterministic offline fallback, and cryptographic auditability.
             </h2>
             <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
-              Run BERT directly on your workstation or air-gapped node with SQLite async storage,
+              Run ShieldStaff directly on your workstation or air-gapped node with SQLite async storage,
               local vLLM endpoints, or the built-in deterministic simulator—with no mandatory
               external cloud upload.
             </p>
@@ -881,11 +881,11 @@ export function LandingPage() {
             <div className="flex items-center gap-2">
               <ShieldCheck size={14} className="text-[var(--status-verified-ink)] shrink-0" />
               <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
-                BERT · Evidence-Verified Document Intelligence
+                ShieldStaff · Evidence-Verified Document Intelligence
               </span>
             </div>
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-sm">
-              Inspired by Marshal Louis-Alexandre Berthier. Every answer is backed by verbatim
+              Every answer is backed by verbatim
               source quotes (&ge;97% rapidfuzz match) or escalated to human triage.
             </p>
             <div className="text-[11px] font-mono text-[var(--text-muted)]">

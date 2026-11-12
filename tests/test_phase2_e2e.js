@@ -11,8 +11,8 @@ import { HeadlessBrowser, sleep } from "./e2e/lib/cdp.js";
 import { BertApiClient } from "./e2e/lib/api.js";
 import { assert, assertEqual, assertIncludes } from "./e2e/lib/assert.js";
 
-const WEB_URL = process.env.BERT_WEB_URL || "http://localhost:5173";
-const API_URL = process.env.BERT_API_URL || "http://localhost:8000";
+const WEB_URL = process.env.SHIELDSTAFF_WEB_URL || process.env.BERT_WEB_URL || "http://localhost:5173";
+const API_URL = process.env.SHIELDSTAFF_API_URL || process.env.BERT_API_URL || "http://localhost:8000";
 
 async function runPhase2BrowserSuite() {
   console.log("================================================================================");

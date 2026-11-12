@@ -18,6 +18,7 @@ export { AGENTS, AGENT_ROLES };
 export { registerWorkspaceNavigator } from "./evidenceInspectionSlice";
 
 export type BertState = DocumentSlice & JobExecutionSlice & EvidenceInspectionSlice & CopilotSlice;
+export type ShieldStaffState = BertState;
 
 export const useBertStore = create<BertState>()((...a) => ({
   ...createDocumentSlice(...a),
@@ -25,3 +26,5 @@ export const useBertStore = create<BertState>()((...a) => ({
   ...createEvidenceInspectionSlice(...a),
   ...createCopilotSlice(...a),
 }));
+
+export const useShieldStaffStore = useBertStore;

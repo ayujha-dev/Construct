@@ -1,4 +1,4 @@
-"""Single FastAPI entrypoint for BERT's local-first document intelligence API."""
+"""Single FastAPI entrypoint for ShieldStaff's local-first document intelligence API."""
 
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="BERT Document Intelligence API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ShieldStaff Document Intelligence API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -418,7 +418,7 @@ async def seed_demo() -> SeedResponse:
 
 @app.post("/api/v1/jobs/demo", response_model=JobExecutionResponse)
 async def start_demo_job() -> dict[str, Any]:
-    """Prepare all demo documents synchronously, then run the 7-agent regiment in background."""
+    """Prepare all demo documents synchronously, then run the 7-agent pipeline in background."""
     await job_controller.cancel_active_jobs()
     workspace_id = uuid4()
     batch_id = uuid4()
@@ -1168,7 +1168,7 @@ async def export_questionnaire() -> Response:
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="BERT_Completed_Questionnaire.xlsx"'},
+        headers={"Content-Disposition": 'attachment; filename="ShieldStaff_Completed_Questionnaire.xlsx"'},
     )
 
 

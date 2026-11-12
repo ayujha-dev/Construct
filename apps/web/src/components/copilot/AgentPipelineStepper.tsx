@@ -185,7 +185,7 @@ export function AgentPipelineStepper() {
 
         {/* Right / Main: 7-Agent Horizontal Stepper */}
         <ol
-          aria-label="Regiment stages"
+          aria-label="Pipeline stages"
           className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 min-w-0"
         >
           {agentSteps.map((step, idx) => {

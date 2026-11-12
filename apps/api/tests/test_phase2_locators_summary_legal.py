@@ -515,7 +515,7 @@ async def test_xlsx_export_does_not_mutate_disk_template_and_reports_escalated_l
 
         export_resp = await client.get("/api/v1/export/questionnaire.xlsx")
         assert export_resp.status_code == 200
-        assert "BERT_Completed_Questionnaire.xlsx" in export_resp.headers["content-disposition"]
+        assert "ShieldStaff_Completed_Questionnaire.xlsx" in export_resp.headers["content-disposition"]
 
         # Original template file on disk MUST remain byte-for-byte unmutated.
         after_bytes = source_file.read_bytes()

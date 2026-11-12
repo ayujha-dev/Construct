@@ -352,7 +352,7 @@ export const USE_CASES: UseCaseItem[] = [
     title: "Scanned Physical Addenda",
     summary: "Isolate low-confidence stamps, handwriting, and degraded PDF scans for human review.",
     detail:
-      "When Scout detects ocr_confidence < 0.90, BERT blocks automatic verification, attaches page bounding-box coordinates, and queues the crop in /triage with transactional Undo.",
+      "When Scout detects ocr_confidence < 0.90, ShieldStaff blocks automatic verification, attaches page bounding-box coordinates, and queues the crop in /triage with transactional Undo.",
     locatorExample: "Locator: Scanned_Addendum_p7.pdf p. 7 · bbox [96, 412, 488, 492]",
   },
 ];

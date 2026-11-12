@@ -28,3 +28,4 @@ async def clean_database():
         await session.execute(delete(JobExecution))
         await session.execute(delete(Document))
         await session.commit()
+    await engine.dispose()

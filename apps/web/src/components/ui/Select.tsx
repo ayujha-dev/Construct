@@ -46,7 +46,7 @@ export function Select<T extends string = string>({
   testId,
 }: SelectProps<T>) {
   const autoId = useId();
-  const triggerId = id || `bert-select-${autoId}`;
+  const triggerId = id || `shieldstaff-select-${autoId}`;
   const labelId = `${triggerId}-label`;
   const listboxId = `${triggerId}-listbox`;
 

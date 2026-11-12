@@ -42,7 +42,7 @@ The frontend has been completely rebuilt using a daylight-first editorial and pr
   - Contributing findings table with inline editor and quote citations.
   - Right Configuration & Insight sidebar (`w-80`) with data source filter, grouping, segmentation, and blue pill toggle switches.
 
-## Processing Contract & 7-Agent Regiment
+## Processing Contract & 7-Agent Pipeline
 
 ```text
 Scout → Quartermaster → Chronos → Vanguard → Ranger → Arbiter → Envoy
