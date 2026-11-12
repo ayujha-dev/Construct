@@ -30,7 +30,7 @@ export function warnMissingLocator(context: string, detail?: unknown): void {
   const key = `${context}:${typeof detail === "string" ? detail : JSON.stringify(detail ?? "")}`;
   if (warnedMissingLocators.has(key)) return;
   warnedMissingLocators.add(key);
-  console.warn(`[BERT Evidence] No source locator stored (${context})`, detail ?? "");
+  console.warn(`[ShieldStaff Evidence] No source locator stored (${context})`, detail ?? "");
 }
 
 export function normalizeBbox(

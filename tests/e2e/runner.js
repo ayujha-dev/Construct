@@ -66,7 +66,7 @@ async function main() {
 
   console.log(`Loaded ${selectedTests.length} test cases for execution.\n`);
 
-  const api = new BertApiClient(options.apiUrl);
+  const api = new BertApiClient(options.apiUrl, options.wsUrl || options.apiUrl.replace(/^http/, "ws"));
   const browser = new HeadlessBrowser();
 
   const results = {

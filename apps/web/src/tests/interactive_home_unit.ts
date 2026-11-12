@@ -20,6 +20,7 @@ const fs = require("node:fs") as {
 const path = require("node:path") as {
   resolve: (...parts: string[]) => string;
   join: (...parts: string[]) => string;
+  basename: (p: string, ext?: string) => string;
 };
 const nodeProcess = (globalThis as unknown as { process: { cwd: () => string } }).process;
 

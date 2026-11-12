@@ -1,12 +1,12 @@
 # PDF Coordinate System & Evidence Locator Specification
 
-This document defines the canonical coordinate geometry, transformation math, and multi-format `EvidenceLocator` contracts used across BERT's ingestion parser (`apps/api/bert/ingestion/docling_parser.py`), verification gate, API payloads, and frontend visual viewers.
+This document defines the canonical coordinate geometry, transformation math, and multi-format `EvidenceLocator` contracts used across ShieldStaff's ingestion parser (`apps/api/bert/ingestion/docling_parser.py`), verification gate, API payloads, and frontend visual viewers.
 
 ---
 
 ## 1. Canonical PDF Coordinate System (`pdf_user_space_bl_pt`)
 
-All PDF bounding boxes persisted by BERT (`ASTNode.bounding_box`, `PDFLocator.bbox`) use **unrotated PDF user space** (`coord_system = "pdf_user_space_bl_pt"`):
+All PDF bounding boxes persisted by ShieldStaff (`ASTNode.bounding_box`, `PDFLocator.bbox`) use **unrotated PDF user space** (`coord_system = "pdf_user_space_bl_pt"`):
 
 | Property | Specification |
 | :--- | :--- |
