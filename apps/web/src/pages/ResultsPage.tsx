@@ -1,12 +1,14 @@
 import {
   AlertTriangle,
   BarChart3,
+  CheckCircle2,
   ChevronDown,
   Download,
   FileSearch,
   FileSpreadsheet,
   RefreshCw,
   RotateCcw,
+  Scale,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -45,6 +47,14 @@ import {
 } from "../lib/workItemMetrics";
 import { useBertStore } from "../store/useBertStore";
 import type { WorkItem } from "../types/bert";
+
+function StatusGlyph({ status }: { status: string }) {
+  if (status === "VERIFIED") return <ShieldCheck size={10} aria-hidden="true" />;
+  if (status === "HUMAN_OVERRIDE") return <Sparkles size={10} aria-hidden="true" />;
+  if (status === "ESCALATED_LEGAL") return <Scale size={10} aria-hidden="true" />;
+  if (status === "NOT_APPLICABLE") return <CheckCircle2 size={10} aria-hidden="true" />;
+  return <AlertTriangle size={10} aria-hidden="true" />;
+}
 
 export function ResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -480,7 +490,7 @@ export function ResultsPage() {
 
     if (inlineEditId === item.id) {
       return (
-        <div className="space-y-1.5 p-2 rounded-lg bg-purple-50 border border-purple-200">
+        <div className="space-y-1.5 p-2 rounded-lg bg-[var(--status-override-row)] border border-[var(--status-override-border)]">
           <Select
             size="sm"
             ariaLabel={`Override reason code for ${item.prompt_or_question}`}
@@ -500,7 +510,7 @@ export function ResultsPage() {
               setInlineError(null);
             }}
             placeholder="Substantive answer (>=12 chars, >=3 words)"
-            className="px-2 py-1 rounded border border-purple-300 bg-white text-xs w-full text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded border border-[var(--status-override-border)] bg-[var(--bg-surface)] text-xs w-full text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
           <input
             type="text"
@@ -511,9 +521,9 @@ export function ResultsPage() {
               setInlineError(null);
             }}
             placeholder="Citation / locator (optional if attesting)"
-            className="px-2 py-1 rounded border border-purple-300 bg-white text-[11px] w-full text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded border border-[var(--status-override-border)] bg-[var(--bg-surface)] text-[11px] w-full text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
-          <label className="flex items-center gap-1.5 text-[11px] text-zinc-900 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-primary)] cursor-pointer">
             <input
               type="checkbox"
               aria-label="No evidence — reviewer attests"
@@ -522,7 +532,7 @@ export function ResultsPage() {
                 setInlineNoEvidence(e.target.checked);
                 setInlineError(null);
               }}
-              className="rounded border-zinc-400 text-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="rounded border-[var(--border-strong)] accent-[var(--status-override-solid)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             />
             <span>No evidence — reviewer attests</span>
           </label>
@@ -530,7 +540,7 @@ export function ResultsPage() {
             <div
               role="alert"
               data-testid="results-override-error"
-              className="text-[10px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded px-2 py-1"
+              className="text-[10px] font-medium text-[var(--status-danger-ink)] bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] rounded px-2 py-1"
             >
               {inlineError}
             </div>
@@ -539,7 +549,7 @@ export function ResultsPage() {
             <button
               type="button"
               onClick={() => void handleInlineResolve(item.id)}
-              className="px-2 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded text-[11px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--status-override-solid)] hover:opacity-90 text-white rounded text-[11px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Save Override
             </button>
@@ -549,7 +559,7 @@ export function ResultsPage() {
                 setInlineEditId(null);
                 setInlineError(null);
               }}
-              className="px-2 py-1 bg-zinc-200 text-zinc-900 rounded text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Cancel
             </button>
@@ -560,7 +570,7 @@ export function ResultsPage() {
 
     if (naActionId === item.id) {
       return (
-        <div className="space-y-1.5 p-2 rounded-lg bg-slate-50 border border-slate-300">
+        <div className="space-y-1.5 p-2 rounded-lg bg-[var(--status-neutral-row)] border border-[var(--status-neutral-border)]">
           <Select
             size="sm"
             ariaLabel={`Not applicable reason code for ${item.prompt_or_question}`}
@@ -580,13 +590,13 @@ export function ResultsPage() {
               setNaError(null);
             }}
             placeholder="Required reason for marking N/A..."
-            className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full px-2 py-1 rounded border border-[var(--status-neutral-border)] bg-[var(--bg-surface)] text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
           {naError && (
             <div
               role="alert"
               data-testid="results-na-error"
-              className="text-[10px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded px-2 py-1"
+              className="text-[10px] font-medium text-[var(--status-danger-ink)] bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] rounded px-2 py-1"
             >
               {naError}
             </div>
@@ -595,7 +605,7 @@ export function ResultsPage() {
             <button
               type="button"
               onClick={() => void handleConfirmNotApplicable(item.id)}
-              className="px-2 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-[10px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--status-neutral-solid)] hover:opacity-90 text-white rounded text-[10px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Confirm N/A
             </button>
@@ -605,7 +615,7 @@ export function ResultsPage() {
                 setNaActionId(null);
                 setNaError(null);
               }}
-              className="px-2 py-1 bg-zinc-200 text-zinc-900 rounded text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Cancel
             </button>
@@ -616,14 +626,14 @@ export function ResultsPage() {
 
     if (legalActionId === item.id) {
       return (
-        <div className="space-y-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200">
+        <div className="space-y-1.5 p-2 rounded-lg bg-[var(--status-warning-row)] border border-[var(--status-warning-border)]">
           <input
             type="text"
             aria-label="Legal assignee"
             value={legalAssignee}
             onChange={(e) => setLegalAssignee(e.target.value)}
             placeholder="Assignee"
-            className="w-full px-2 py-1 rounded border border-amber-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full px-2 py-1 rounded border border-[var(--status-warning-border)] bg-[var(--bg-surface)] text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
           <input
             type="text"
@@ -631,20 +641,20 @@ export function ResultsPage() {
             value={legalReason}
             onChange={(e) => setLegalReason(e.target.value)}
             placeholder="Reason note"
-            className="w-full px-2 py-1 rounded border border-amber-300 bg-white text-[11px] text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full px-2 py-1 rounded border border-[var(--status-warning-border)] bg-[var(--bg-surface)] text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
           <div className="flex items-center gap-1 flex-wrap">
             <button
               type="button"
               onClick={() => void handleConfirmLegalFlag(item.id)}
-              className="px-2 py-1 bg-[#18181B] text-white rounded text-[10px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--status-warning-solid)] text-white rounded text-[10px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Confirm Legal
             </button>
             <button
               type="button"
               onClick={() => setLegalActionId(null)}
-              className="px-2 py-1 bg-zinc-200 text-zinc-800 rounded text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2 py-1 bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Cancel
             </button>
@@ -655,17 +665,20 @@ export function ResultsPage() {
 
     return (
       <>
-        <div className="line-clamp-2 font-serif italic break-words" title={item.fluent_output}>
+        <div
+          className="line-clamp-2 font-serif italic break-words text-[var(--text-primary)]"
+          title={item.fluent_output}
+        >
           {item.fluent_output}
         </div>
         {isLegal && (
-          <div className="text-[10px] font-mono text-amber-950 break-words">
+          <div className="text-[10px] font-mono text-[var(--status-warning-ink)] break-words">
             {item.escalation_assignee || "Legal Counsel"}
             {item.escalation_reason ? `: ${item.escalation_reason}` : ""}
           </div>
         )}
         {(isOverride || isNotApplicable) && item.human_override_reason_code && (
-          <div className="text-[10px] font-mono text-purple-950 break-words">
+          <div className="text-[10px] font-mono text-[var(--status-override-ink)] break-words">
             Reason: {item.human_override_reason_code}
             {item.no_evidence_attestation ? " · No evidence attested" : ""}
           </div>
@@ -678,8 +691,9 @@ export function ResultsPage() {
     const matchScore = item.gate_telemetry?.citation_match ?? 0;
     if (item.verified_citations.length === 0) {
       return (
-        <span className="font-mono text-[10px] text-rose-800 font-semibold">
-          {item.no_evidence_attestation ? "No evidence attested" : "Missing Proof"}
+        <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[var(--status-danger-ink)] font-semibold">
+          <AlertTriangle size={10} aria-hidden="true" />
+          <span>{item.no_evidence_attestation ? "No evidence attested" : "Missing Proof"}</span>
         </span>
       );
     }
@@ -714,7 +728,7 @@ export function ResultsPage() {
                   citation.document_filename || citDoc?.filename || "",
               });
             }}
-            className="block max-w-full truncate font-mono text-[11px] text-blue-700 cursor-pointer hover:underline text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+            className="block max-w-full truncate font-mono text-[11px] text-[var(--accent-brand-ink)] cursor-pointer hover:underline text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
             title={citation.quote}
           >
             “{citation.quote}”
@@ -756,7 +770,7 @@ export function ResultsPage() {
                       item.fluent_output
               )
             }
-            className="px-2 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded bg-[var(--status-verified-soft)] hover:opacity-90 border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             {acceptState.label}
           </button>
@@ -775,7 +789,7 @@ export function ResultsPage() {
             setNaActionId(null);
             setLegalActionId(null);
           }}
-          className="px-2 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="px-2 py-1 rounded bg-[var(--status-override-soft)] hover:opacity-90 border border-[var(--status-override-border)] text-[var(--status-override-ink)] text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
         >
           Override
         </button>
@@ -791,7 +805,7 @@ export function ResultsPage() {
               setInlineEditId(null);
               setLegalActionId(null);
             }}
-            className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-900 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded bg-[var(--status-neutral-soft)] hover:opacity-90 border border-[var(--status-neutral-border)] text-[var(--status-neutral-ink)] text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             Mark N/A
           </button>
@@ -805,7 +819,7 @@ export function ResultsPage() {
               setInlineEditId(null);
               setNaActionId(null);
             }}
-            className="px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded bg-[var(--status-warning-soft)] hover:opacity-90 border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             Flag for Legal
           </button>
@@ -815,7 +829,7 @@ export function ResultsPage() {
           <button
             type="button"
             onClick={() => void undoWorkItem(item.id)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#18181B] hover:bg-[#27272A] text-white text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             <RotateCcw size={10} />
             <span>Undo</span>
@@ -825,7 +839,7 @@ export function ResultsPage() {
         {item.verification_status !== "VERIFIED" && (
           <Link
             to={`/triage?item=${encodeURIComponent(item.id)}`}
-            className="px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded bg-[var(--accent-brand-soft)] hover:opacity-90 border border-[var(--accent-brand-border)] text-[var(--accent-brand-ink)] text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             Triage →
           </Link>
@@ -835,7 +849,7 @@ export function ResultsPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden bg-white text-zinc-900 relative">
+    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden bg-[var(--bg-canvas)] text-[var(--text-primary)] relative">
       {/* Fixed/Reserved Non-Shifting Status Toast Slot (CLS = 0) */}
       <div
         role="status"
@@ -844,8 +858,8 @@ export function ResultsPage() {
         className="fixed top-16 right-4 sm:right-6 z-50 pointer-events-none"
       >
         {copiedNotification && (
-          <div className="px-3.5 py-2 rounded-xl bg-emerald-900 text-white text-xs font-medium shadow-lg border border-emerald-700 flex items-center gap-2">
-            <ShieldCheck size={14} className="text-emerald-300 shrink-0" />
+          <div className="px-3.5 py-2 rounded-xl bg-[var(--status-verified-solid)] text-white text-xs font-medium shadow-lg border border-[var(--status-verified-border)] flex items-center gap-2">
+            <ShieldCheck size={14} className="shrink-0" />
             <span>{copiedNotification}</span>
           </div>
         )}
@@ -855,22 +869,24 @@ export function ResultsPage() {
       <TriageToast className="fixed bottom-5 right-5 z-50 max-w-md shadow-xl" />
 
       {/* 1. Top Report Header Bar */}
-      <header className="min-h-14 border-b border-zinc-200/90 bg-white px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
+      <header className="min-h-14 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
-          <h1 className="text-sm sm:text-base font-bold text-zinc-950 font-ui tracking-tight">
+          <h1 className="font-serif text-lg sm:text-xl font-semibold text-[var(--text-primary)] tracking-tight">
             Executive Compliance & Risk Report
           </h1>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200 text-[11px] sm:text-xs font-mono shrink-0">
-            <ShieldCheck size={14} className="text-emerald-700 shrink-0" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border border-[var(--status-verified-border)] text-[11px] sm:text-xs font-mono shrink-0">
+            <ShieldCheck size={14} className="shrink-0" />
             <span>SHA-256 Zero-Data-Loss Verified</span>
           </div>
 
-          <div className="flex p-0.5 rounded-lg bg-zinc-100 border border-zinc-200 text-xs shrink-0">
+          <div className="flex p-0.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs shrink-0">
             <button
               type="button"
               onClick={() => toggleTab("overview")}
-              className={`px-2.5 py-1 rounded-md font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-                !isAuditTab ? "bg-white text-zinc-950 shadow-2xs font-semibold" : "text-zinc-700"
+              className={`px-2.5 py-1 rounded-md font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
+                !isAuditTab
+                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               Findings & Summary
@@ -878,8 +894,10 @@ export function ResultsPage() {
             <button
               type="button"
               onClick={() => toggleTab("audit")}
-              className={`px-2.5 py-1 rounded-md font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-                isAuditTab ? "bg-white text-zinc-950 shadow-2xs font-semibold" : "text-zinc-700"
+              className={`px-2.5 py-1 rounded-md font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
+                isAuditTab
+                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               Audit Ledger (
@@ -896,7 +914,7 @@ export function ResultsPage() {
             type="button"
             data-testid="results-reset-filters-btn"
             onClick={handleResetFilters}
-            className="px-3 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs font-medium text-zinc-700 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-medium text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             Reset Filters
           </button>
@@ -907,13 +925,16 @@ export function ResultsPage() {
             disabled={!canExport}
             title={exportDisabledReason}
             onClick={handleRequestExportXlsx}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
               canExport
-                ? "border-zinc-300 hover:bg-zinc-50 text-zinc-800 cursor-pointer"
-                : "border-zinc-200 bg-zinc-100 text-zinc-500 cursor-not-allowed opacity-75"
+                ? "border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-[var(--text-primary)] cursor-pointer"
+                : "border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[var(--text-muted)] cursor-not-allowed opacity-75"
             }`}
           >
-            <FileSpreadsheet size={14} className={canExport ? "text-emerald-700" : "text-zinc-500"} />
+            <FileSpreadsheet
+              size={14}
+              className={canExport ? "text-[var(--status-verified-ink)]" : "text-[var(--text-muted)]"}
+            />
             <span>Export Answered .XLSX</span>
           </button>
 
@@ -921,7 +942,7 @@ export function ResultsPage() {
             type="button"
             data-testid="results-download-summary-btn"
             onClick={() => void handleDownloadSummary()}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1"
           >
             <Download size={14} />
             <span>Download Summary Report</span>
@@ -932,19 +953,20 @@ export function ResultsPage() {
       {/* Main Container: stacks Insight Configuration cleanly below < 1280px (xl) */}
       <div className="flex-1 flex flex-col xl:flex-row min-h-0 overflow-y-auto xl:overflow-hidden">
         {/* 2. Center Analytics & Findings Stage */}
-        <div className="flex-1 min-w-0 p-4 sm:p-6 xl:overflow-y-auto bg-white space-y-5">
+        <div className="flex-1 min-w-0 p-4 sm:p-6 xl:overflow-y-auto bg-[var(--bg-canvas)] space-y-5">
           {onlyEscalations && (
             <div
               data-testid="results-escalations-banner"
-              className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 text-xs flex flex-wrap items-center justify-between gap-2"
+              className="p-3 rounded-xl bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-xs flex flex-wrap items-center justify-between gap-2"
             >
-              <span className="font-semibold">
-                Showing Escalations & Unresolved Items (sorted P0 Critical → P3 Low)
+              <span className="inline-flex items-center gap-1.5 font-semibold">
+                <AlertTriangle size={14} aria-hidden="true" />
+                <span>Showing Escalations & Unresolved Items (sorted P0 Critical → P3 Low)</span>
               </span>
               <Link
                 to="/triage"
                 data-testid="results-open-triage-link"
-                className="font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="font-semibold text-[var(--accent-brand-ink)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 Open in Triage Queue →
               </Link>
@@ -954,33 +976,35 @@ export function ResultsPage() {
           {isAuditTab ? (
             /* Cryptographic Audit Ledger View (?tab=audit) */
             <div className="space-y-6" data-testid="audit-ledger-panel">
-              <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-4">
+              <div className="p-5 rounded-2xl bg-[var(--status-verified-soft)] border border-[var(--status-verified-border)] flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2 font-semibold text-sm text-emerald-950">
-                    <ShieldCheck size={17} className="text-emerald-700 shrink-0" />
+                  <div className="flex items-center gap-2 font-semibold text-sm text-[var(--status-verified-ink)]">
+                    <ShieldCheck size={17} className="shrink-0" />
                     <span>SHA-256 Chain of Custody & Escalation Audit Ledger</span>
                   </div>
-                  <p className="text-xs text-emerald-900">
+                  <p className="text-xs text-[var(--text-primary)]">
                     Every document AST node tree, verification gate decision, legal flag, and undo operation is cryptographically hashed.
                   </p>
                 </div>
-                <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-white border border-emerald-200 text-emerald-900 shrink-0 tabular-nums min-w-[115px] text-center">
+                <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-[var(--bg-surface)] border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] shrink-0 tabular-nums min-w-[115px] text-center">
                   {auditLogs.length} Audit Events
                 </span>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 overflow-hidden">
-                <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-200 font-semibold text-xs text-zinc-900 tabular-nums">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden">
+                <div className="px-4 py-3 bg-[var(--bg-sunken)] border-b border-[var(--border-subtle)] font-semibold text-xs text-[var(--text-primary)] tabular-nums">
                   Document Checksums ({documents.length})
                 </div>
-                <div className="divide-y divide-zinc-200">
+                <div className="divide-y divide-[var(--border-subtle)]">
                   {documents.map((doc) => (
                     <div key={doc.id} className="p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
-                        <div className="font-semibold text-zinc-900 break-words">{doc.filename}</div>
-                        <div className="font-mono text-[11px] text-zinc-600 break-all">{doc.ast_checksum}</div>
+                        <div className="font-semibold text-[var(--text-primary)] break-words">{doc.filename}</div>
+                        <div className="font-mono text-[11px] text-[var(--text-secondary)] break-all">
+                          {doc.ast_checksum}
+                        </div>
                       </div>
-                      <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 tabular-nums shrink-0">
+                      <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] tabular-nums shrink-0">
                         {doc.total_ast_nodes} AST nodes · {doc.processing_status}
                       </span>
                     </div>
@@ -988,19 +1012,19 @@ export function ResultsPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 overflow-hidden">
-                <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-200 font-semibold text-xs text-zinc-900">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden">
+                <div className="px-4 py-3 bg-[var(--bg-sunken)] border-b border-[var(--border-subtle)] font-semibold text-xs text-[var(--text-primary)]">
                   Escalation & Review Audit Trail
                 </div>
                 {auditLogs.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-zinc-600">
+                  <div className="p-8 text-center text-xs text-[var(--text-secondary)]">
                     No escalation or verification audit events recorded yet.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-700 font-semibold uppercase text-[10px]">
+                        <tr className="bg-[var(--bg-sunken)] border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-semibold uppercase text-[10px]">
                           <th className="py-2.5 px-3">Action</th>
                           <th className="py-2.5 px-3">Work Item / Agent</th>
                           <th className="py-2.5 px-3">Reason / Note</th>
@@ -1009,16 +1033,16 @@ export function ResultsPage() {
                           <th className="py-2.5 px-3">Time</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-200">
+                      <tbody className="divide-y divide-[var(--border-subtle)]">
                         {auditLogs.map((entry) => (
-                          <tr key={entry.id} className="hover:bg-zinc-50">
-                            <td className="py-2.5 px-3 font-mono font-semibold text-zinc-900">
+                          <tr key={entry.id} className="hover:bg-[var(--bg-sunken)]">
+                            <td className="py-2.5 px-3 font-mono font-semibold text-[var(--text-primary)]">
                               {entry.action}
                             </td>
-                            <td className="py-2.5 px-3 text-zinc-700 font-mono text-[11px]">
+                            <td className="py-2.5 px-3 text-[var(--text-secondary)] font-mono text-[11px]">
                               {entry.work_item_id ? `${entry.work_item_id.slice(0, 8)}…` : "Corpus"} · {entry.agent_name}
                             </td>
-                            <td className="py-2.5 px-3 text-zinc-800">
+                            <td className="py-2.5 px-3 text-[var(--text-primary)]">
                               {String(
                                 entry.metadata_json?.reason ??
                                   entry.metadata_json?.note ??
@@ -1026,13 +1050,13 @@ export function ResultsPage() {
                                   "—"
                               )}
                             </td>
-                            <td className="py-2.5 px-3 text-zinc-700">
+                            <td className="py-2.5 px-3 text-[var(--text-secondary)]">
                               {String(entry.metadata_json?.assignee ?? entry.metadata_json?.actor ?? "Reviewer")}
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-[10px] text-zinc-600">
+                            <td className="py-2.5 px-3 font-mono text-[10px] text-[var(--text-muted)]">
                               {entry.output_hash.slice(0, 16)}…
                             </td>
-                            <td className="py-2.5 px-3 font-mono text-[10px] text-zinc-600 tabular-nums">
+                            <td className="py-2.5 px-3 font-mono text-[10px] text-[var(--text-muted)] tabular-nums">
                               {new Date(entry.created_at).toLocaleTimeString()}
                             </td>
                           </tr>
@@ -1046,7 +1070,7 @@ export function ResultsPage() {
           ) : (
             <>
               {/* Category Legend Bar (reserved min-h + tabular-nums counts for CLS = 0) */}
-              <div className="min-h-7 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium text-zinc-700 pb-2 border-b border-zinc-100 tabular-nums">
+              <div className="min-h-7 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium text-[var(--text-secondary)] pb-2 border-b border-[var(--border-subtle)] tabular-nums">
                 {Object.entries(CATEGORY_COLORS)
                   .slice(0, 6)
                   .map(([cat, color]) => (
@@ -1055,8 +1079,8 @@ export function ResultsPage() {
                         className="w-2.5 h-2.5 rounded-xs shrink-0"
                         style={{ backgroundColor: color.fill }}
                       />
-                      <span className="text-zinc-800">{cat}</span>
-                      <span className="font-mono text-[10px] text-zinc-600 min-w-[2.4ch] text-right tabular-nums">
+                      <span className="text-[var(--text-primary)]">{cat}</span>
+                      <span className="font-mono text-[10px] text-[var(--text-secondary)] min-w-[2.4ch] text-right tabular-nums">
                         ({categoryCounts[cat] ?? 0})
                       </span>
                     </div>
@@ -1066,14 +1090,14 @@ export function ResultsPage() {
               {/* Envoy Executive Synthesis Callout Card (Live Backend / Dynamic Synthesis) */}
               <div
                 data-testid="envoy-summary-card"
-                className="p-4 sm:p-6 rounded-2xl bg-zinc-50 border border-zinc-200/90 shadow-2xs space-y-3"
+                className="p-4 sm:p-6 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-2xs space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="w-6 h-6 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center font-serif font-bold text-xs">
+                    <span className="w-6 h-6 rounded-lg bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border border-[var(--accent-brand-border)] flex items-center justify-center font-serif font-bold text-xs">
                       E
                     </span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 font-mono">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] font-mono">
                       Envoy Executive Synthesis
                     </span>
                   </div>
@@ -1081,37 +1105,41 @@ export function ResultsPage() {
                   <div className="flex flex-wrap items-center gap-1.5 tabular-nums">
                     <span
                       data-testid="metrics-machine-verified"
-                      className="min-h-6 min-w-[126px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950 tabular-nums"
+                      className="min-h-6 min-w-[126px] inline-flex items-center justify-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[var(--status-verified-soft)] border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] tabular-nums"
                     >
-                      {metrics.machineVerified} Machine Verified
+                      <ShieldCheck size={11} aria-hidden="true" />
+                      <span>{metrics.machineVerified} Machine Verified</span>
                     </span>
                     <span
                       data-testid="metrics-human-override"
-                      className="min-h-6 min-w-[126px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-purple-100 border border-purple-300 text-purple-950 tabular-nums"
+                      className="min-h-6 min-w-[126px] inline-flex items-center justify-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[var(--status-override-soft)] border border-[var(--status-override-border)] text-[var(--status-override-ink)] tabular-nums"
                     >
-                      {metrics.humanOverride} Human Overridden
+                      <Sparkles size={11} aria-hidden="true" />
+                      <span>{metrics.humanOverride} Human Overridden</span>
                     </span>
                     <span
                       data-testid="metrics-escalated-legal"
-                      className="min-h-6 min-w-[122px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950 tabular-nums"
+                      className="min-h-6 min-w-[122px] inline-flex items-center justify-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[var(--status-warning-soft)] border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] tabular-nums"
                     >
-                      {metrics.escalatedLegal} Escalated Legal
+                      <Scale size={11} aria-hidden="true" />
+                      <span>{metrics.escalatedLegal} Escalated Legal</span>
                     </span>
                     <span
                       data-testid="metrics-not-applicable"
-                      className="min-h-6 min-w-[96px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-900 tabular-nums"
+                      className="min-h-6 min-w-[96px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[var(--status-neutral-soft)] border border-[var(--status-neutral-border)] text-[var(--status-neutral-ink)] tabular-nums"
                     >
                       {metrics.notApplicable} Marked N/A
                     </span>
                     <span
                       data-testid="metrics-unresolved"
-                      className="min-h-6 min-w-[98px] inline-flex items-center justify-center text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-950 tabular-nums"
+                      className="min-h-6 min-w-[98px] inline-flex items-center justify-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] tabular-nums"
                     >
-                      {metrics.unresolved} Unresolved
+                      <AlertTriangle size={11} aria-hidden="true" />
+                      <span>{metrics.unresolved} Unresolved</span>
                     </span>
                     <span
                       data-testid="metrics-defensibility-score"
-                      className="min-h-6 min-w-[178px] inline-flex items-center justify-center text-xs font-mono font-semibold px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-900 tabular-nums"
+                      className="min-h-6 min-w-[178px] inline-flex items-center justify-center text-xs font-mono font-semibold px-2 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] tabular-nums"
                     >
                       {effectiveDefensibilityScore === null
                         ? "N/A Defensibility Score"
@@ -1127,7 +1155,7 @@ export function ResultsPage() {
                         })
                       }
                       aria-label="Regenerate executive summary"
-                      className="min-h-6 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white hover:bg-zinc-100 border border-zinc-300 text-zinc-800 text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="min-h-6 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bg-sunken)] hover:border-[var(--border-strong)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       <RefreshCw size={11} className={summaryStatus === "loading" ? "spin" : ""} />
                       <span>Refresh</span>
@@ -1136,12 +1164,12 @@ export function ResultsPage() {
                 </div>
 
                 {summaryStatus === "loading" && !executiveSummary && workItems.length > 0 ? (
-                  <div className="flex items-center gap-2 py-3 text-xs text-zinc-700 min-h-[52px]">
-                    <RefreshCw size={14} className="spin text-blue-700" />
+                  <div className="flex items-center gap-2 py-3 text-xs text-[var(--text-secondary)] min-h-[52px]">
+                    <RefreshCw size={14} className="spin text-[var(--accent-brand-ink)]" />
                     <span>Generating real-time Envoy synthesis for active filter…</span>
                   </div>
                 ) : summaryStatus === "error" && !executiveSummary && filteredItems.length > 0 ? (
-                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center justify-between gap-3">
+                  <div className="p-3 rounded-xl bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-xs flex items-center justify-between gap-3">
                     <span className="flex items-center gap-1.5">
                       <AlertTriangle size={14} />
                       <span>{summaryError || "Failed to load executive summary."}</span>
@@ -1155,7 +1183,7 @@ export function ResultsPage() {
                           latest_only: enforceLatestVersion,
                         })
                       }
-                      className="px-2.5 py-1 rounded bg-white border border-rose-300 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="px-2.5 py-1 rounded bg-[var(--bg-surface)] border border-[var(--status-danger-border)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       Retry
                     </button>
@@ -1163,13 +1191,13 @@ export function ResultsPage() {
                 ) : isEmptyScope ? (
                   <div
                     data-testid="summary-empty-state"
-                    className="p-3.5 rounded-xl bg-white border border-dashed border-zinc-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    className="p-3.5 rounded-xl bg-[var(--bg-sunken)] border border-dashed border-[var(--border-strong)] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div className="space-y-1">
-                      <p className="text-zinc-900 text-sm font-semibold">
+                      <p className="text-[var(--text-primary)] text-sm font-semibold">
                         0 findings match the current document/filters
                       </p>
-                      <p className="text-zinc-600 text-xs">
+                      <p className="text-[var(--text-secondary)] text-xs">
                         {workItems.length === 0
                           ? "No corpus findings have been analyzed yet. Load the Investor Demo Case or upload documents in the Workspace."
                           : "Adjust Data Source, search terms, or Verification Filters to inspect matching findings."}
@@ -1181,7 +1209,7 @@ export function ResultsPage() {
                           type="button"
                           data-testid="summary-reset-filters-btn"
                           onClick={handleResetFilters}
-                          className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="px-3 py-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-semibold text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           Reset Filters
                         </button>
@@ -1191,7 +1219,7 @@ export function ResultsPage() {
                           type="button"
                           data-testid="summary-load-demo-btn"
                           onClick={() => void loadDemo()}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           <Sparkles size={13} />
                           <span>Load Demo Case</span>
@@ -1201,14 +1229,14 @@ export function ResultsPage() {
                   </div>
                 ) : (
                   <>
-                    <p className="text-zinc-900 text-sm leading-relaxed font-serif whitespace-pre-wrap">
+                    <p className="text-[var(--text-primary)] text-sm leading-relaxed font-serif whitespace-pre-wrap">
                       {executiveSummary?.summary_text ||
                         `Showing ${metrics.total} active finding(s): ${metrics.machineVerified} machine verified (${effectiveDefensibilityScore ?? 0}% defensibility).`}
                     </p>
                     {enforceLatestVersion &&
                       executiveSummary?.arbiter_resolutions &&
                       executiveSummary.arbiter_resolutions.superseded_documents.length > 0 && (
-                        <div className="text-[11px] font-mono text-zinc-700 pt-1 border-t border-zinc-200/70">
+                        <div className="text-[11px] font-mono text-[var(--text-secondary)] pt-1 border-t border-[var(--border-subtle)] tabular-nums">
                           Chronos Arbiter: {executiveSummary.arbiter_resolutions.superseded_documents.length} superseded document(s) filtered across {executiveSummary.arbiter_resolutions.latest_documents.length} latest document(s).
                         </div>
                       )}
@@ -1219,19 +1247,19 @@ export function ResultsPage() {
               {/* Stacked Visual Breakdown Chart */}
               <div
                 data-testid="results-chart-card"
-                className="p-4 sm:p-6 rounded-2xl bg-white border border-zinc-200/90 shadow-sm space-y-4"
+                className="p-4 sm:p-6 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-sm space-y-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-950 font-ui">
+                    <h3 className="font-serif text-base font-semibold text-[var(--text-primary)]">
                       {metricType === "confidence" ? "Average Match Confidence" : "Findings Distribution"} by{" "}
                       {groupedBy === "documents" ? "Document" : "Category"}
                     </h3>
-                    <span className="text-[11px] text-zinc-600 font-mono">
+                    <span className="text-[11px] text-[var(--text-secondary)] font-mono">
                       Segmented by {segmentedBy === "category" ? "Quartermaster Category" : "Caution Tier"}
                     </span>
                   </div>
-                  <span className="text-xs font-mono text-zinc-700 font-medium tabular-nums min-w-[116px] text-right">
+                  <span className="text-xs font-mono text-[var(--text-primary)] font-medium tabular-nums min-w-[116px] text-right">
                     Total: {metrics.total} findings
                   </span>
                 </div>
@@ -1259,16 +1287,16 @@ export function ResultsPage() {
                 {chartModel.isEmpty ? (
                   <div
                     data-testid="chart-zero-state"
-                    className="h-64 flex flex-col items-center justify-center text-center px-4 rounded-xl border border-dashed border-zinc-300 bg-zinc-50/70 space-y-3"
+                    className="h-64 flex flex-col items-center justify-center text-center px-4 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-sunken)] space-y-3"
                   >
-                    <span className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center text-zinc-500 shadow-2xs">
+                    <span className="w-10 h-10 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] shadow-2xs">
                       <BarChart3 size={18} />
                     </span>
                     <div className="space-y-1 max-w-md">
-                      <div className="text-xs font-semibold text-zinc-900">
+                      <div className="text-xs font-semibold text-[var(--text-primary)]">
                         0 findings match the current document/filters
                       </div>
-                      <p className="text-[11px] text-zinc-600">
+                      <p className="text-[11px] text-[var(--text-secondary)]">
                         {workItems.length === 0
                           ? "Load the Investor Demo Case or upload corpus documents to plot findings and confidence metrics."
                           : "No chart bars can be plotted for this empty slice. Reset filters to restore the full breakdown."}
@@ -1279,7 +1307,7 @@ export function ResultsPage() {
                         <button
                           type="button"
                           onClick={handleResetFilters}
-                          className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="px-3 py-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-semibold text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           Reset Filters
                         </button>
@@ -1288,7 +1316,7 @@ export function ResultsPage() {
                         <button
                           type="button"
                           onClick={() => void loadDemo()}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           <Sparkles size={12} />
                           <span>Load Demo Case</span>
@@ -1299,7 +1327,7 @@ export function ResultsPage() {
                 ) : (
                   <div
                     data-testid="results-chart-bars"
-                    className="h-64 flex items-end gap-2 sm:gap-4 md:gap-6 pt-8 pb-2 px-2 sm:px-4 border-b border-zinc-200/80 overflow-x-auto"
+                    className="h-64 flex items-end gap-2 sm:gap-4 md:gap-6 pt-8 pb-2 px-2 sm:px-4 border-b border-[var(--border-subtle)] overflow-x-auto"
                   >
                     {chartModel.columns.map((col) => (
                       <div
@@ -1308,14 +1336,14 @@ export function ResultsPage() {
                         data-metric-value={col.total}
                         className="flex-1 min-w-[48px] flex flex-col items-center h-full justify-end group relative"
                       >
-                        <div className="absolute -top-9 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900 text-white text-[10px] font-mono py-1 px-2 rounded pointer-events-none z-30 whitespace-nowrap shadow-md tabular-nums">
+                        <div className="absolute -top-9 opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--bg-hero)] text-[#F4F1EA] border border-[var(--border-subtle)] text-[10px] font-mono py-1 px-2 rounded pointer-events-none z-30 whitespace-nowrap shadow-md tabular-nums">
                           {col.fullLabel}:{" "}
                           {metricType === "confidence"
                             ? `${col.total}% avg match (${col.rawCount})`
                             : `${col.total} findings`}
                         </div>
 
-                        <span className="mb-1 text-[10px] font-mono font-semibold text-zinc-700 tabular-nums">
+                        <span className="mb-1 text-[10px] font-mono font-semibold text-[var(--text-primary)] tabular-nums">
                           {metricType === "confidence" ? `${col.total}%` : col.total}
                         </span>
 
@@ -1323,7 +1351,7 @@ export function ResultsPage() {
                           <div
                             data-testid="chart-bar-fill"
                             data-height-percent={col.colHeightPercent}
-                            className="w-full max-w-16 rounded-t-lg overflow-hidden flex flex-col-reverse transition-all duration-300 shadow-2xs group-hover:scale-[1.02] bg-zinc-100"
+                            className="w-full max-w-16 rounded-t-lg overflow-hidden flex flex-col-reverse transition-all duration-300 shadow-2xs group-hover:scale-[1.02] bg-[var(--bg-sunken)]"
                             style={{ height: `${col.colHeightPercent}%` }}
                           >
                             {col.segments.map((seg, sIdx) => (
@@ -1348,13 +1376,13 @@ export function ResultsPage() {
                         ) : (
                           <div
                             data-testid="chart-bar-zero-baseline"
-                            className="w-full max-w-16 h-0.5 bg-zinc-300 rounded-full"
+                            className="w-full max-w-16 h-0.5 bg-[var(--border-strong)] rounded-full"
                             title={`${col.fullLabel}: 0%`}
                           />
                         )}
 
                         <span
-                          className="mt-2.5 text-[11px] font-medium text-zinc-700 truncate max-w-20 text-center"
+                          className="mt-2.5 text-[11px] font-medium text-[var(--text-secondary)] truncate max-w-20 text-center"
                           title={col.fullLabel}
                         >
                           {col.label}
@@ -1368,14 +1396,14 @@ export function ResultsPage() {
               {/* Contributing Findings & Answers Table */}
               <div
                 data-testid="results-findings-card"
-                className="p-4 sm:p-6 rounded-2xl bg-white border border-zinc-200/90 shadow-sm space-y-4"
+                className="p-4 sm:p-6 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-sm space-y-4"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-zinc-950 font-ui">
+                    <h3 className="font-serif text-base font-semibold text-[var(--text-primary)]">
                       Contributing Findings & Verbatim Evidence Table
                     </h3>
-                    <span className="text-[11px] text-zinc-600 font-mono tabular-nums">
+                    <span className="text-[11px] text-[var(--text-secondary)] font-mono tabular-nums">
                       {metrics.total} records active ({metrics.machineVerified} machine verified, {metrics.humanOverride} override, {metrics.escalatedLegal} legal, {metrics.notApplicable} n/a, {metrics.unresolved} unresolved)
                     </span>
                   </div>
@@ -1383,19 +1411,19 @@ export function ResultsPage() {
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <Link
                       to="/triage"
-                      className="text-xs font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
+                      className="text-xs font-semibold text-[var(--accent-brand-ink)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded px-1"
                     >
                       Open in Triage Queue →
                     </Link>
                     <div className="relative w-full sm:w-56">
-                      <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-600" />
+                      <Search size={13} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
                       <input
                         type="text"
                         aria-label="Filter findings table"
                         placeholder="Filter findings..."
                         value={searchFilter}
                         onChange={(e) => setSearchFilter(e.target.value)}
-                        className="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-900 placeholder:text-zinc-600 focus:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 transition-all w-full"
+                        className="pl-8 pr-3 py-1.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:bg-[var(--bg-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] transition-all w-full"
                       />
                     </div>
                   </div>
@@ -1404,16 +1432,16 @@ export function ResultsPage() {
                 {filteredItems.length === 0 ? (
                   <div
                     data-testid="findings-table-empty-state"
-                    className="p-8 text-center rounded-xl border border-dashed border-zinc-300 bg-zinc-50/70 space-y-3"
+                    className="p-8 text-center rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-sunken)] space-y-3"
                   >
-                    <div className="mx-auto w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center text-zinc-500 shadow-2xs">
+                    <div className="mx-auto w-10 h-10 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-secondary)] shadow-2xs">
                       <FileSearch size={18} />
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-900">
+                      <div className="text-xs font-semibold text-[var(--text-primary)]">
                         0 findings match the current document/filters
                       </div>
-                      <p className="text-[11px] text-zinc-600 max-w-md mx-auto">
+                      <p className="text-[11px] text-[var(--text-secondary)] max-w-md mx-auto">
                         {workItems.length === 0
                           ? "No findings are available in this workspace yet. Load the demo corpus or upload files to run verification."
                           : "Try clearing the search query, switching Data Source back to All Uploaded Documents, or resetting verification filters."}
@@ -1425,7 +1453,7 @@ export function ResultsPage() {
                           type="button"
                           data-testid="table-reset-filters-btn"
                           onClick={handleResetFilters}
-                          className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="px-3 py-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-semibold text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           Reset Filters
                         </button>
@@ -1435,7 +1463,7 @@ export function ResultsPage() {
                           type="button"
                           data-testid="table-load-demo-btn"
                           onClick={() => void loadDemo()}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           <Sparkles size={12} />
                           <span>Load Demo Case</span>
@@ -1466,54 +1494,56 @@ export function ResultsPage() {
                           <article
                             key={`mobile-${item.id}`}
                             data-testid={`results-mobile-card-${item.id}`}
-                            className={`rounded-xl border border-zinc-200 p-3.5 space-y-2.5 text-xs ${
+                            className={`rounded-xl border border-[var(--border-subtle)] p-3.5 space-y-2.5 text-xs ${
                               isLegal
-                                ? "bg-amber-50/50"
+                                ? "bg-[var(--status-warning-row)]"
                                 : isOverride
-                                  ? "bg-purple-50/40"
+                                  ? "bg-[var(--status-override-row)]"
                                   : isNotApplicable
-                                    ? "bg-slate-50/60"
+                                    ? "bg-[var(--status-neutral-row)]"
                                     : isCritical
-                                      ? "bg-rose-50/40"
-                                      : "bg-white"
+                                      ? "bg-[var(--status-danger-row)]"
+                                      : "bg-[var(--bg-surface)]"
                             }`}
                           >
                             <div className="flex flex-wrap items-center justify-between gap-1.5">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span
-                                  className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded border tabular-nums ${
                                     isCritical
-                                      ? "bg-rose-100 text-rose-900 border border-rose-200"
+                                      ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
                                       : isHigh
-                                        ? "bg-amber-100 text-amber-900 border border-amber-200"
-                                        : "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                                        ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
+                                        : "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
                                   }`}
                                 >
                                   {currentPriority}
                                 </span>
                                 <span
-                                  className={`font-mono text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                                  className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded font-semibold border ${
                                     isLegal
-                                      ? "bg-amber-200/80 text-amber-950 border border-amber-300"
+                                      ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
                                       : isOverride
-                                        ? "bg-purple-100 text-purple-950 border border-purple-300"
+                                        ? "bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border-[var(--status-override-border)]"
                                         : isNotApplicable
-                                          ? "bg-slate-200 text-slate-900 border border-slate-300"
+                                          ? "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]"
                                           : item.verification_status === "VERIFIED"
-                                            ? "bg-emerald-100 text-emerald-950 border border-emerald-300"
-                                            : "bg-rose-100 text-rose-950 border border-rose-300"
+                                            ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
+                                            : "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
                                   }`}
                                 >
-                                  {isOverride ? "Human Override" : item.verification_status}
+                                  <StatusGlyph status={item.verification_status} />
+                                  <span>{isOverride ? "Human Override" : item.verification_status}</span>
                                 </span>
                                 {item.weak_evidence && (
-                                  <span className="font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300">
-                                    Weak Evidence
+                                  <span className="inline-flex items-center gap-1 font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]">
+                                    <AlertTriangle size={9} aria-hidden="true" />
+                                    <span>Weak Evidence</span>
                                   </span>
                                 )}
                               </div>
                               <span
-                                className={`inline-block px-2 py-0.5 rounded text-[11px] font-mono font-bold tabular-nums ${matchTone.badgeClass}`}
+                                className={`inline-block px-2 py-0.5 rounded text-[11px] font-mono font-bold border tabular-nums ${matchTone.badgeClass}`}
                               >
                                 {isOverride
                                   ? `${Math.round(matchScore)}% · Unverified by gate`
@@ -1521,20 +1551,20 @@ export function ResultsPage() {
                               </span>
                             </div>
 
-                            <div className="text-[11px] font-mono text-zinc-600">
+                            <div className="text-[11px] font-mono text-[var(--text-secondary)]">
                               {item.category} · Original: {originalPriority}
                             </div>
 
-                            <div className="font-semibold text-zinc-900 break-words">
+                            <div className="font-semibold text-[var(--text-primary)] break-words">
                               {item.prompt_or_question}
                             </div>
 
-                            <div className="text-zinc-800 space-y-1">
+                            <div className="text-[var(--text-primary)] space-y-1">
                               {renderInlineEditorsOrAnswer(item)}
                             </div>
 
                             {showExactQuotes && (
-                              <div className="pt-1 border-t border-zinc-200/70 space-y-1.5">
+                              <div className="pt-1 border-t border-[var(--border-subtle)] space-y-1.5">
                                 {renderCitationsCell(item)}
                               </div>
                             )}
@@ -1542,7 +1572,7 @@ export function ResultsPage() {
                             <div
                               data-testid={`results-action-cell-${item.id}`}
                               data-results-action-visible="true"
-                              className="pt-2 border-t border-zinc-200/70"
+                              className="pt-2 border-t border-[var(--border-subtle)]"
                             >
                               {renderActionButtons(item, false)}
                             </div>
@@ -1554,7 +1584,7 @@ export function ResultsPage() {
                     {/* Desktop & Tablet Responsive Table View (>= 768px) with fixed column layout + sticky Action column */}
                     <div
                       data-testid="results-table-scroll"
-                      className="hidden md:block overflow-x-auto border border-zinc-200/80 rounded-xl"
+                      className="hidden md:block overflow-x-auto border border-[var(--border-subtle)] rounded-xl"
                     >
                       <table className="w-full min-w-[920px] table-fixed text-left text-xs border-collapse">
                         <colgroup>
@@ -1567,7 +1597,7 @@ export function ResultsPage() {
                           <col className="w-[170px]" />
                         </colgroup>
                         <thead>
-                          <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-700 font-semibold uppercase text-[10px] tracking-wider">
+                          <tr className="bg-[var(--bg-sunken)] border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-semibold uppercase text-[10px] tracking-wider">
                             <th className="py-3 px-2.5">Priority & Status</th>
                             <th className="py-3 px-2.5">Category</th>
                             <th className="py-3 px-2.5">Question / Clause</th>
@@ -1576,13 +1606,13 @@ export function ResultsPage() {
                             <th className="py-3 px-2.5">Match %</th>
                             <th
                               data-testid="results-actions-header"
-                              className="py-3 px-2.5 text-right sticky right-0 z-10 bg-zinc-50 border-l border-zinc-200/80 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]"
+                              className="py-3 px-2.5 text-right sticky right-0 z-10 bg-[var(--bg-sunken)] border-l border-[var(--border-subtle)] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]"
                             >
                               Actions
                             </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-200/70">
+                        <tbody className="divide-y divide-[var(--border-subtle)]">
                           {filteredItems.map((item) => {
                             const currentPriority = item.priority_tier;
                             const originalPriority = item.original_priority_tier || item.priority_tier;
@@ -1599,91 +1629,93 @@ export function ResultsPage() {
                             );
 
                             const rowBg = isLegal
-                              ? "bg-amber-50/50"
+                              ? "bg-[var(--status-warning-row)]"
                               : isOverride
-                                ? "bg-purple-50/35"
+                                ? "bg-[var(--status-override-row)]"
                                 : isNotApplicable
-                                  ? "bg-slate-50/50"
+                                  ? "bg-[var(--status-neutral-row)]"
                                   : isCritical
-                                    ? "bg-rose-50/35"
+                                    ? "bg-[var(--status-danger-row)]"
                                     : isHigh
-                                      ? "bg-amber-50/20"
-                                      : "bg-white";
+                                      ? "bg-[var(--status-warning-row)]"
+                                      : "bg-[var(--bg-surface)]";
 
                             const stickyCellBg = isLegal
-                              ? "bg-[#FFFBEB]"
+                              ? "bg-[var(--status-warning-row)]"
                               : isOverride
-                                ? "bg-[#FAF5FF]"
+                                ? "bg-[var(--status-override-row)]"
                                 : isNotApplicable
-                                  ? "bg-[#F8FAFC]"
+                                  ? "bg-[var(--status-neutral-row)]"
                                   : isCritical
-                                    ? "bg-[#FFF5F6]"
+                                    ? "bg-[var(--status-danger-row)]"
                                     : isHigh
-                                      ? "bg-[#FFFDF5]"
-                                      : "bg-white";
+                                      ? "bg-[var(--status-warning-row)]"
+                                      : "bg-[var(--bg-surface)]";
 
                             return (
                               <tr
                                 key={item.id}
                                 data-testid={`results-row-${item.id}`}
-                                className={`hover:bg-zinc-50/70 transition-colors ${rowBg}`}
+                                className={`hover:bg-[var(--bg-sunken)] transition-colors ${rowBg}`}
                               >
                                 {/* Priority & Verification Status */}
                                 <td className="py-3 px-2.5 align-top space-y-1">
                                   <span
                                     data-testid={`row-priority-${item.id}`}
-                                    className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded block w-fit ${
+                                    className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded block w-fit border tabular-nums ${
                                       isCritical
-                                        ? "bg-rose-100 text-rose-900 border border-rose-200"
+                                        ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
                                         : isHigh
-                                          ? "bg-amber-100 text-amber-900 border border-amber-200"
-                                          : "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                                          ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
+                                          : "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
                                     }`}
                                   >
                                     {currentPriority}
                                   </span>
                                   <span
                                     data-testid={`row-original-priority-${item.id}`}
-                                    className="font-mono text-[9px] text-zinc-600 block w-fit"
+                                    className="font-mono text-[9px] text-[var(--text-secondary)] block w-fit"
                                   >
                                     Original: {originalPriority}
                                   </span>
                                   <span
                                     data-testid={`row-status-${item.id}`}
-                                    className={`font-mono text-[10px] px-1.5 py-0.5 rounded block w-fit font-semibold break-all ${
+                                    className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded w-fit font-semibold border break-all ${
                                       isLegal
-                                        ? "bg-amber-200/80 text-amber-950 border border-amber-300"
+                                        ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
                                         : isOverride
-                                          ? "bg-purple-100 text-purple-950 border border-purple-300"
+                                          ? "bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border-[var(--status-override-border)]"
                                           : isNotApplicable
-                                            ? "bg-slate-200 text-slate-900 border border-slate-300"
+                                            ? "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]"
                                             : item.verification_status === "VERIFIED"
-                                              ? "bg-emerald-100 text-emerald-950 border border-emerald-300"
-                                              : "bg-rose-100 text-rose-950 border border-rose-300"
+                                              ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
+                                              : "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
                                     }`}
                                   >
-                                    {isOverride ? "Human Override" : item.verification_status}
+                                    <StatusGlyph status={item.verification_status} />
+                                    <span>{isOverride ? "Human Override" : item.verification_status}</span>
                                   </span>
                                   {item.weak_evidence && (
                                     <span
                                       data-testid="weak-evidence-badge"
                                       title={item.weak_evidence_reason || "Quote below specificity threshold"}
-                                      className="font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded block w-fit bg-amber-100 text-amber-950 border border-amber-300"
+                                      className="inline-flex items-center gap-1 font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded w-fit bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]"
                                     >
-                                      Weak Evidence
+                                      <AlertTriangle size={9} aria-hidden="true" />
+                                      <span>Weak Evidence</span>
                                     </span>
                                   )}
                                 </td>
 
                                 {/* Category */}
-                                <td className="py-3 px-2.5 align-top font-medium text-zinc-800 break-words leading-snug">
+                                <td className="py-3 px-2.5 align-top font-medium text-[var(--text-primary)] break-words leading-snug">
                                   {item.category}
                                 </td>
 
                                 {/* Question / Clause */}
                                 <td
                                   data-testid={`row-question-${item.id}`}
-                                  className="py-3 px-2.5 align-top font-semibold text-zinc-900"
+                                  className="py-3 px-2.5 align-top font-semibold text-[var(--text-primary)]"
                                 >
                                   <div className="line-clamp-2 break-words" title={item.prompt_or_question}>
                                     {item.prompt_or_question}
@@ -1693,14 +1725,14 @@ export function ResultsPage() {
                                 {/* Fluent Answer + Inline Editors (fixed col width prevents horizontal CLS) */}
                                 <td
                                   data-testid={`row-answer-${item.id}`}
-                                  className="py-3 px-2.5 align-top text-zinc-800 space-y-1"
+                                  className="py-3 px-2.5 align-top text-[var(--text-primary)] space-y-1"
                                 >
                                   {renderInlineEditorsOrAnswer(item)}
                                 </td>
 
                                 {/* Exact Verbatim Quote(s) + EvidenceLocatorBadge */}
                                 {showExactQuotes && (
-                                  <td className="py-3 px-2.5 align-top text-zinc-700 space-y-1.5">
+                                  <td className="py-3 px-2.5 align-top text-[var(--text-secondary)] space-y-1.5">
                                     {renderCitationsCell(item)}
                                   </td>
                                 )}
@@ -1709,7 +1741,7 @@ export function ResultsPage() {
                                 <td className="py-3 px-2.5 align-top font-mono font-bold tabular-nums">
                                   <span
                                     data-testid={`row-match-${item.id}`}
-                                    className={`inline-block min-w-[54px] text-center px-2 py-0.5 rounded text-[11px] tabular-nums ${matchTone.badgeClass}`}
+                                    className={`inline-block min-w-[54px] text-center px-2 py-0.5 rounded text-[11px] border tabular-nums ${matchTone.badgeClass}`}
                                   >
                                     {isOverride
                                       ? `${Math.round(matchScore)}% · Unverified by gate`
@@ -1721,7 +1753,7 @@ export function ResultsPage() {
                                 <td
                                   data-testid={`results-action-cell-${item.id}`}
                                   data-results-action-visible="true"
-                                  className={`py-3 px-2.5 align-top text-right sticky right-0 z-10 border-l border-zinc-200/80 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] ${stickyCellBg}`}
+                                  className={`py-3 px-2.5 align-top text-right sticky right-0 z-10 border-l border-[var(--border-subtle)] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)] ${stickyCellBg}`}
                                 >
                                   {renderActionButtons(item, true)}
                                 </td>
@@ -1741,7 +1773,7 @@ export function ResultsPage() {
         {/* 3. Right Configuration & Insight Sidebar (stacks cleanly below < 1280px, collapsible via aria-expanded) */}
         <aside
           data-testid="insight-configuration-sidebar"
-          className="w-full xl:w-80 xl:h-full bg-[#F9FAFB] border-t xl:border-t-0 xl:border-l border-zinc-200/80 p-4 sm:p-5 xl:overflow-y-auto text-xs text-zinc-900 shrink-0"
+          className="w-full xl:w-80 xl:h-full bg-[var(--bg-surface)] border-t xl:border-t-0 xl:border-l border-[var(--border-subtle)] p-4 sm:p-5 xl:overflow-y-auto text-xs text-[var(--text-primary)] shrink-0"
         >
           <button
             type="button"
@@ -1749,15 +1781,15 @@ export function ResultsPage() {
             aria-expanded={configOpen}
             aria-controls="insight-configuration-body"
             onClick={() => setConfigOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between pb-3 border-b border-zinc-200 text-left cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full flex items-center justify-between pb-3 border-b border-[var(--border-subtle)] text-left cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
-            <span className="flex items-center gap-1.5 font-semibold text-sm text-zinc-950">
-              <SlidersHorizontal size={15} className="text-zinc-600" />
+            <span className="flex items-center gap-1.5 font-serif font-semibold text-base text-[var(--text-primary)]">
+              <SlidersHorizontal size={15} className="text-[var(--text-secondary)]" />
               <span>Insight Configuration</span>
             </span>
             <ChevronDown
               size={15}
-              className={`text-zinc-600 transition-transform duration-150 ${
+              className={`text-[var(--text-secondary)] transition-transform duration-150 ${
                 configOpen ? "rotate-0" : "-rotate-90"
               }`}
             />
@@ -1798,13 +1830,13 @@ export function ResultsPage() {
               />
 
               {/* Interactive Toggle Switches (Accessible role="switch") */}
-              <div className="space-y-3 pt-3 border-t border-zinc-200">
-                <span className="text-[11px] font-semibold text-zinc-700 uppercase tracking-wider block">
+              <div className="space-y-3 pt-3 border-t border-[var(--border-subtle)]">
+                <span className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider block">
                   Verification Filters
                 </span>
 
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-zinc-800">
+                  <span className="text-xs font-medium text-[var(--text-primary)]">
                     Show only Critical / Action items
                   </span>
                   <button
@@ -1813,8 +1845,8 @@ export function ResultsPage() {
                     aria-checked={onlyCritical}
                     aria-label="Show only Critical or Action items"
                     onClick={() => setOnlyCritical(!onlyCritical)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${
-                      onlyCritical ? "bg-blue-600" : "bg-zinc-300"
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 ${
+                      onlyCritical ? "bg-[var(--accent-brand)]" : "bg-[var(--border-strong)]"
                     }`}
                   >
                     <span
@@ -1826,7 +1858,7 @@ export function ResultsPage() {
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-zinc-800">
+                  <span className="text-xs font-medium text-[var(--text-primary)]">
                     Show exact verbatim source quotes
                   </span>
                   <button
@@ -1835,8 +1867,8 @@ export function ResultsPage() {
                     aria-checked={showExactQuotes}
                     aria-label="Show exact verbatim source quotes"
                     onClick={() => setShowExactQuotes(!showExactQuotes)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${
-                      showExactQuotes ? "bg-blue-600" : "bg-zinc-300"
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 ${
+                      showExactQuotes ? "bg-[var(--accent-brand)]" : "bg-[var(--border-strong)]"
                     }`}
                   >
                     <span
@@ -1848,7 +1880,7 @@ export function ResultsPage() {
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-zinc-800">
+                  <span className="text-xs font-medium text-[var(--text-primary)]">
                     Enforce latest version (Chronos)
                   </span>
                   <button
@@ -1857,8 +1889,8 @@ export function ResultsPage() {
                     aria-checked={enforceLatestVersion}
                     aria-label="Enforce latest document version via Chronos"
                     onClick={() => setEnforceLatestVersion(!enforceLatestVersion)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${
-                      enforceLatestVersion ? "bg-blue-600" : "bg-zinc-300"
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 ${
+                      enforceLatestVersion ? "bg-[var(--accent-brand)]" : "bg-[var(--border-strong)]"
                     }`}
                   >
                     <span
@@ -1881,22 +1913,22 @@ export function ResultsPage() {
           aria-modal="true"
           aria-labelledby="export-warning-title"
           data-testid="export-warning-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
         >
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-zinc-200 shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] shadow-2xl p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0">
+                <span className="w-9 h-9 rounded-xl bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] flex items-center justify-center shrink-0">
                   <AlertTriangle size={18} />
                 </span>
                 <div>
                   <h2
                     id="export-warning-title"
-                    className="text-sm font-bold text-zinc-950 font-ui"
+                    className="font-serif text-base font-semibold text-[var(--text-primary)]"
                   >
                     Export Includes Non-Machine-Verified Items
                   </h2>
-                  <p className="text-xs text-zinc-700 mt-0.5">
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                     Review the unverified / overridden / N/A counts stamped into the exported .XLSX audit columns before continuing.
                   </p>
                 </div>
@@ -1905,34 +1937,34 @@ export function ResultsPage() {
                 type="button"
                 aria-label="Close export warning modal"
                 onClick={() => setExportWarningOpen(false)}
-                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-700 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="p-1 rounded-lg hover:bg-[var(--bg-sunken)] text-[var(--text-secondary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+            <div className="p-3.5 rounded-xl bg-[var(--status-warning-soft)] border border-[var(--status-warning-border)] space-y-1.5">
               {exportWarningLines.map((line, idx) => (
-                <div key={idx} className="text-xs font-mono font-medium text-amber-950 tabular-nums">
+                <div key={idx} className="text-xs font-mono font-medium text-[var(--status-warning-ink)] tabular-nums">
                   • {line}
                 </div>
               ))}
             </div>
 
-            <div className="text-[11px] text-zinc-700">
-              Exported rows include <span className="font-mono font-semibold">AI_Status</span>,{" "}
-              <span className="font-mono font-semibold">Original_Priority</span>,{" "}
-              <span className="font-mono font-semibold">Review_Warning</span>,{" "}
-              <span className="font-mono font-semibold">Reason_Code</span>, and{" "}
-              <span className="font-mono font-semibold">Weak_Evidence</span> columns.
+            <div className="text-[11px] text-[var(--text-secondary)]">
+              Exported rows include <span className="font-mono font-semibold text-[var(--text-primary)]">AI_Status</span>,{" "}
+              <span className="font-mono font-semibold text-[var(--text-primary)]">Original_Priority</span>,{" "}
+              <span className="font-mono font-semibold text-[var(--text-primary)]">Review_Warning</span>,{" "}
+              <span className="font-mono font-semibold text-[var(--text-primary)]">Reason_Code</span>, and{" "}
+              <span className="font-mono font-semibold text-[var(--text-primary)]">Weak_Evidence</span> columns.
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
               <button
                 type="button"
                 data-testid="export-warning-cancel"
                 onClick={() => setExportWarningOpen(false)}
-                className="px-3.5 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="px-3.5 py-2 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-semibold text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 Cancel Export
               </button>
@@ -1940,7 +1972,7 @@ export function ResultsPage() {
                 type="button"
                 data-testid="export-warning-confirm"
                 onClick={() => void performExportXlsx()}
-                className="px-4 py-2 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+                className="px-4 py-2 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1"
               >
                 Confirm Export .XLSX
               </button>

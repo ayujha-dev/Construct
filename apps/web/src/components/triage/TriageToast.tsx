@@ -32,10 +32,10 @@ export function TriageToast({ className = "" }: TriageToastProps) {
       aria-live="polite"
       data-testid="undo-toast"
       data-triage-toast="true"
-      className={`p-3 rounded-xl bg-[#18181B] text-white text-xs flex items-center justify-between gap-3 shadow-lg ${className}`}
+      className={`p-3 rounded-xl bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)] text-xs flex items-center justify-between gap-3 shadow-lg ${className}`}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <Scale size={14} className="text-amber-400 shrink-0" />
+        <Scale size={14} className="text-[var(--status-warning-ink)] shrink-0" />
         <span className="truncate font-medium">
           {undoToast.action}: {undoToast.label}
         </span>
@@ -45,7 +45,7 @@ export function TriageToast({ className = "" }: TriageToastProps) {
           type="button"
           data-testid="triage-undo-btn"
           onClick={handleUndo}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[var(--status-warning-solid)] hover:opacity-95 text-white font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] tabular-nums"
         >
           <RotateCcw size={12} />
           <span>{ids.length > 1 ? `Undo (${ids.length})` : "Undo"}</span>
@@ -54,7 +54,7 @@ export function TriageToast({ className = "" }: TriageToastProps) {
           type="button"
           aria-label="Dismiss notification"
           onClick={dismissUndoToast}
-          className="p-1 rounded hover:bg-zinc-800 text-zinc-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="p-1 rounded hover:bg-[var(--bg-sunken)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
         >
           <X size={13} />
         </button>

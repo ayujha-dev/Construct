@@ -2,25 +2,25 @@ import type { Document, WorkItem } from "../types/bert";
 import { itemMatchesDocumentFilter } from "./workItemMetrics";
 
 export const CATEGORY_COLORS: Record<string, { fill: string; text: string }> = {
-  "Access Control": { fill: "#38BDF8", text: "#0369A1" },
-  "Liability & Indemnification": { fill: "#F87171", text: "#B91C1C" },
-  "Cryptography & Keys": { fill: "#A78BFA", text: "#6D28D9" },
-  "Data Retention": { fill: "#FBBF24", text: "#B45309" },
-  "Temporal Conflicts": { fill: "#FB923C", text: "#C2410C" },
-  "Cloud Infrastructure": { fill: "#818CF8", text: "#4338CA" },
-  "Vendor Risk Assessment": { fill: "#34D399", text: "#047857" },
-  "Disaster Recovery": { fill: "#60A5FA", text: "#1D4ED8" },
-  "Degraded Scans & Physical": { fill: "#F472B6", text: "#BE185D" },
-  "General Governance": { fill: "#94A3B8", text: "#334155" },
+  "Access Control": { fill: "#265D80", text: "var(--accent-brand-ink)" },
+  "Liability & Indemnification": { fill: "#9E1C28", text: "var(--status-danger-ink)" },
+  "Cryptography & Keys": { fill: "#6B348A", text: "var(--status-override-ink)" },
+  "Data Retention": { fill: "#924D00", text: "var(--status-warning-ink)" },
+  "Temporal Conflicts": { fill: "#A65800", text: "var(--status-warning-ink)" },
+  "Cloud Infrastructure": { fill: "#317099", text: "var(--accent-brand-ink)" },
+  "Vendor Risk Assessment": { fill: "#0D6B50", text: "var(--status-verified-ink)" },
+  "Disaster Recovery": { fill: "#1B4965", text: "var(--accent-brand-ink)" },
+  "Degraded Scans & Physical": { fill: "#8A1520", text: "var(--status-danger-ink)" },
+  "General Governance": { fill: "#4A525D", text: "var(--status-neutral-ink)" },
 };
 
 export const CAUTION_BUCKET_COLORS: Record<string, string> = {
-  "Machine Verified": "#10B981",
-  "Human Overridden": "#7C3AED",
-  "Marked N/A": "#64748B",
-  "Escalated Legal": "#D97706",
-  "Critical Open": "#EF4444",
-  "Unresolved / Review": "#F59E0B",
+  "Machine Verified": "var(--status-verified-solid)",
+  "Human Overridden": "var(--status-override-solid)",
+  "Marked N/A": "var(--status-neutral-solid)",
+  "Escalated Legal": "var(--status-warning-solid)",
+  "Critical Open": "var(--status-danger-solid)",
+  "Unresolved / Review": "#B86B11",
 };
 
 export type ResultsMetricType = "count" | "confidence";

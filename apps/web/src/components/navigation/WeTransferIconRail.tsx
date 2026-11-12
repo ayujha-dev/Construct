@@ -10,6 +10,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { computeWorkItemMetrics } from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
+import { ThemeToggle } from "../ui/ThemeToggle";
 
 export function WeTransferIconRail() {
   const navigate = useNavigate();
@@ -39,43 +40,43 @@ export function WeTransferIconRail() {
 
   const railDotColor =
     wsStatus === "connected"
-      ? "bg-emerald-600"
+      ? "bg-[var(--status-verified-solid)]"
       : wsStatus === "connecting" || wsStatus === "reconnecting"
-        ? "bg-amber-600 animate-pulse"
+        ? "bg-[var(--status-warning-solid)] animate-pulse"
         : backendAvailable
-          ? "bg-blue-600"
-          : "bg-zinc-600";
+          ? "bg-[var(--accent-brand)]"
+          : "bg-[var(--status-neutral-solid)]";
 
   const itemClass = (active: boolean) =>
-    `flex flex-col items-center gap-1 p-2 rounded-xl transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+    `flex flex-col items-center gap-1 p-2 rounded-xl transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
       active
-        ? "text-blue-800 bg-blue-50 font-semibold"
-        : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100/80"
+        ? "text-[var(--accent-brand-ink)] bg-[var(--accent-brand-soft)] font-semibold border border-[var(--accent-brand-border)]"
+        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
     }`;
 
   return (
     <aside
       aria-label="Primary rail navigation"
-      className="hidden md:flex fixed left-0 top-0 bottom-0 w-16 bg-white border-r border-zinc-200/90 z-40 flex-col items-center justify-between py-4"
+      className="hidden md:flex fixed left-0 top-0 bottom-0 w-16 bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] z-40 flex-col items-center justify-between py-4"
     >
       {/* Brand Monogram */}
       <div className="flex flex-col items-center gap-1">
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="w-10 h-10 rounded-2xl bg-[#18181B] text-white font-serif text-xl font-bold flex items-center justify-center shadow-sm hover:scale-105 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="w-10 h-10 rounded-2xl bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] font-serif text-xl font-bold flex items-center justify-center shadow-sm hover:scale-105 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           title="BERT Document Intelligence"
           aria-label="BERT Home"
         >
           B
         </button>
-        <span className="text-[9px] font-mono tracking-widest text-zinc-700 font-semibold uppercase">
+        <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] font-semibold uppercase">
           BERT
         </span>
       </div>
 
       {/* Main Rail Navigation */}
-      <nav aria-label="Quick views" className="flex flex-col items-center gap-3 my-auto">
+      <nav aria-label="Quick views" className="flex flex-col items-center gap-2.5 my-auto">
         <Link to="/" className={itemClass(isUploadActive)} title="Upload & Overview">
           <UploadCloud size={18} strokeWidth={1.8} />
           <span className="text-[10px] tracking-tight">Upload</span>
@@ -87,7 +88,10 @@ export function WeTransferIconRail() {
           title="Live Review Copilot"
         >
           {running && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-600 animate-ping" />
+            <span
+              className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--status-verified-solid)] animate-ping"
+              aria-hidden="true"
+            />
           )}
           <Bot size={18} strokeWidth={1.8} />
           <span className="text-[10px] tracking-tight">Copilot</span>
@@ -108,7 +112,7 @@ export function WeTransferIconRail() {
           title="Human Triage Queue"
         >
           {needsTriage > 0 && (
-            <span className="absolute top-1 right-1 min-w-4 h-4 px-1 bg-[#BE123C] text-white rounded-full text-[9px] font-bold flex items-center justify-center">
+            <span className="absolute top-1 right-1 min-w-4 h-4 px-1 bg-[var(--status-danger-solid)] text-white rounded-full text-[9px] font-bold flex items-center justify-center tabular-nums">
               {needsTriage}
             </span>
           )}
@@ -135,22 +139,23 @@ export function WeTransferIconRail() {
         </Link>
       </nav>
 
-      {/* Bottom Status / Help */}
-      <div className="flex flex-col items-center gap-3">
+      {/* Bottom Status, Theme Toggle & Audit Link */}
+      <div className="flex flex-col items-center gap-2.5">
+        <ThemeToggle variant="rail" testId="rail-theme-toggle" />
         <button
           type="button"
           data-testid="rail-connection-status"
           onClick={() => navigate(`/workspace${wsQuery}`)}
-          className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 flex items-center justify-center text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          className="w-8 h-8 rounded-full bg-[var(--bg-sunken)] hover:bg-[var(--accent-brand-soft)] border border-[var(--border-subtle)] text-[var(--text-secondary)] flex items-center justify-center text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           title={railStatusTitle}
           aria-label={railStatusTitle}
         >
-          <span className={`w-2 h-2 rounded-full ${railDotColor}`} />
+          <span className={`w-2 h-2 rounded-full ${railDotColor}`} aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => navigate("/results?tab=audit")}
-          className="text-zinc-700 hover:text-zinc-950 transition-colors p-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors p-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
           title="Audit & Verification Ledger"
           aria-label="Open SHA-256 Audit Ledger"
         >

@@ -274,7 +274,7 @@ export function CopilotStream() {
   }, [visibleChatMessages.length, visibleAgentRuns.length]);
 
   return (
-    <div className="flex-1 h-full overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 bg-[#F8F9FA] text-zinc-900">
+    <div className="flex-1 h-full overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 bg-[var(--bg-canvas)] text-[var(--text-primary)]">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Shared Undo Toast Notification */}
         <TriageToast />
@@ -283,16 +283,16 @@ export function CopilotStream() {
 
         {/* Greeting Header */}
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-950 font-ui">
+          <h1 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-[var(--text-primary)]">
             Review Copilot
           </h1>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-[var(--text-secondary)]">
             Ask anything about your corpus or steer the active 7-agent regiment with real-time checkpointing.
           </p>
         </div>
 
         {/* Prompt Composer Box */}
-        <div className="rounded-2xl bg-white border border-zinc-200/90 shadow-sm p-4 space-y-3 transition-all focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15">
+        <div className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-sm p-4 space-y-3 transition-all focus-within:border-[var(--accent-brand-ring)] focus-within:ring-2 focus-within:ring-[var(--accent-brand-soft)]">
           <textarea
             rows={3}
             value={promptInput}
@@ -306,10 +306,10 @@ export function CopilotStream() {
                   ? `Ask anything scoped to ${filteredDoc.filename}...`
                   : "Ask anything about your uploaded files, or give an instruction: e.g. 'What is the liability cap?'..."
             }
-            className="w-full resize-none text-sm text-zinc-900 placeholder:text-zinc-500 bg-transparent rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 p-1"
+            className="w-full resize-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] bg-transparent rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] p-1"
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)] text-xs">
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="file"
@@ -317,24 +317,24 @@ export function CopilotStream() {
                 onChange={handleFileUpload}
                 accept=".pdf,.xlsx,.xls,.csv,.json,.txt,.md"
                 aria-label="Upload file to workspace"
-                className="hidden focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="hidden focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-strong)] text-[var(--text-primary)] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
-                <FileUp size={13} className="text-zinc-600" />
+                <FileUp size={13} className="text-[var(--text-secondary)]" />
                 <span>+ Upload File</span>
               </button>
 
-              <div className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-50 border border-zinc-200 text-zinc-700 font-medium">
-                <Compass size={13} className="text-zinc-600" />
+              <div className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-secondary)] font-medium">
+                <Compass size={13} className="text-[var(--text-secondary)]" />
                 <span>B2B Security Playbook</span>
               </div>
 
-              <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium">
-                <ShieldCheck size={13} className="text-emerald-700" />
+              <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--status-verified-soft)] border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] font-medium tabular-nums">
+                <ShieldCheck size={13} className="text-[var(--status-verified-ink)]" />
                 <span>7-Agent Strict Gate (≥97%)</span>
               </div>
             </div>
@@ -344,7 +344,7 @@ export function CopilotStream() {
                 <button
                   type="button"
                   onClick={() => void pauseJob()}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--status-warning-soft)] hover:opacity-90 border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                   title="Pause active agent safely"
                 >
                   <Pause size={13} />
@@ -356,7 +356,7 @@ export function CopilotStream() {
                 <button
                   type="button"
                   onClick={() => void resumeJob()}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--status-verified-soft)] hover:opacity-90 border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                   title="Resume from last checkpoint"
                 >
                   <Play size={13} />
@@ -369,7 +369,7 @@ export function CopilotStream() {
                 aria-label="Submit copilot prompt"
                 onClick={() => void handleSubmitPrompt()}
                 disabled={!promptInput.trim() || asking}
-                className="w-8 h-8 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-40 text-white flex items-center justify-center transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1"
+                className="w-8 h-8 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] disabled:opacity-40 text-[var(--accent-brand-contrast)] flex items-center justify-center transition-all cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1"
               >
                 <ArrowUp size={16} strokeWidth={2.5} />
               </button>
@@ -383,8 +383,8 @@ export function CopilotStream() {
             {
               icon: FileSpreadsheet,
               label: "Auto-Answer .XLSX",
-              prompt: "Auto-answer all rows in the security questionnaire using verified SOC 2 evidence.",
-              color: "text-emerald-800 bg-emerald-50 border-emerald-200",
+              color:
+                "text-[var(--status-verified-ink)] bg-[var(--status-verified-soft)] border-[var(--status-verified-border)]",
               action: () =>
                 void handleSubmitPrompt(
                   "Auto-answer all rows in the security questionnaire using verified SOC 2 evidence."
@@ -393,8 +393,8 @@ export function CopilotStream() {
             {
               icon: ShieldAlert,
               label: "Flag Critical Risks",
-              prompt: "Expose all P0 Critical risks, uncapped liabilities, and open AWS IAM wildcard rules.",
-              color: "text-rose-800 bg-rose-50 border-rose-200",
+              color:
+                "text-[var(--status-danger-ink)] bg-[var(--status-danger-soft)] border-[var(--status-danger-border)]",
               action: () =>
                 void handleSubmitPrompt(
                   "Expose all P0 Critical risks, uncapped liabilities, and open AWS IAM wildcard rules."
@@ -403,8 +403,8 @@ export function CopilotStream() {
             {
               icon: AlertCircle,
               label: "Verify Scan Readability",
-              prompt: "Verify OCR confidence across physical scan pages and highlight degraded stamp annotations.",
-              color: "text-amber-800 bg-amber-50 border-amber-200",
+              color:
+                "text-[var(--status-warning-ink)] bg-[var(--status-warning-soft)] border-[var(--status-warning-border)]",
               action: () =>
                 void handleSubmitPrompt(
                   "Verify OCR confidence across physical scan pages and highlight degraded stamp annotations."
@@ -413,8 +413,8 @@ export function CopilotStream() {
             {
               icon: Clock,
               label: "Check Policy Conflicts",
-              prompt: "Detect contradictions between 2023 and 2026 policies, enforcing latest supersession.",
-              color: "text-purple-800 bg-purple-50 border-purple-200",
+              color:
+                "text-[var(--status-override-ink)] bg-[var(--status-override-soft)] border-[var(--status-override-border)]",
               action: () =>
                 void handleSubmitPrompt(
                   "Detect contradictions between 2023 and 2026 policies, enforcing latest supersession."
@@ -423,8 +423,8 @@ export function CopilotStream() {
             {
               icon: Sparkles,
               label: "Executive Summary",
-              prompt: "Executive Summary",
-              color: "text-blue-800 bg-blue-50 border-blue-200",
+              color:
+                "text-[var(--accent-brand-ink)] bg-[var(--accent-brand-soft)] border-[var(--accent-brand-border)]",
               action: () => void requestExecutiveSummaryStream(selectedFileFilterId),
             },
           ].map((item) => (
@@ -432,14 +432,14 @@ export function CopilotStream() {
               key={item.label}
               type="button"
               onClick={item.action}
-              className="flex flex-col items-center justify-center p-3.5 rounded-2xl bg-white border border-zinc-200/90 shadow-2xs hover:shadow-sm hover:border-zinc-300 transition-all text-center gap-2 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="flex flex-col items-center justify-center p-3.5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-2xs hover:shadow-sm hover:border-[var(--border-strong)] transition-all text-center gap-2 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center border ${item.color} group-hover:scale-105 transition-transform`}
               >
                 <item.icon size={18} />
               </div>
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-zinc-950 leading-tight">
+              <span className="text-xs font-medium text-[var(--text-primary)] leading-tight">
                 {item.label}
               </span>
             </button>
@@ -448,7 +448,7 @@ export function CopilotStream() {
 
         {/* Example Prompt Pills */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-zinc-600 font-medium">Try asking:</span>
+          <span className="text-[var(--text-secondary)] font-medium">Try asking:</span>
           {[
             "What is the liability cap?",
             "Are there conflicts between 2023 and 2026 policies?",
@@ -458,7 +458,7 @@ export function CopilotStream() {
               key={ex}
               type="button"
               onClick={() => void handleSubmitPrompt(ex)}
-              className="px-3 py-1 rounded-full bg-white border border-zinc-200/90 hover:border-zinc-400 text-zinc-700 hover:text-zinc-950 transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-3 py-1 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-[var(--border-strong)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               “{ex}”
             </button>
@@ -470,17 +470,17 @@ export function CopilotStream() {
           <div
             role="status"
             aria-live="polite"
-            className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-950 text-xs flex items-center justify-between gap-3 shadow-xs"
+            className="p-4 rounded-2xl bg-[var(--status-warning-soft)] border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] text-xs flex items-center justify-between gap-3 shadow-xs"
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-full bg-[var(--bg-surface)] border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] flex items-center justify-center shrink-0">
                 <Pause size={16} />
               </div>
               <div>
-                <strong className="block font-semibold">
+                <strong className="block font-semibold tabular-nums">
                   Paused at Agent {(activeJob?.current_agent_index ?? 0) + 1} ({currentAgent}) on Node {currentNode}.
                 </strong>
-                <span className="text-amber-900">
+                <span>
                   Checkpoint saved. Type an instruction in the box above to steer or click Resume.
                 </span>
               </div>
@@ -488,7 +488,7 @@ export function CopilotStream() {
             <button
               type="button"
               onClick={() => void resumeJob()}
-              className="px-3 py-1.5 rounded-lg bg-[#B45309] hover:bg-[#92400E] text-white font-medium shrink-0 cursor-pointer shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-3 py-1.5 rounded-lg bg-[var(--status-warning-solid)] hover:opacity-90 text-white font-medium shrink-0 cursor-pointer shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Resume Execution
             </button>
@@ -501,9 +501,9 @@ export function CopilotStream() {
             role="status"
             aria-live="polite"
             data-testid="summary-loading-card"
-            className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-950 text-xs flex items-center gap-2.5"
+            className="p-4 rounded-2xl bg-[var(--accent-brand-soft)] border border-[var(--accent-brand-border)] text-[var(--accent-brand-ink)] text-xs flex items-center gap-2.5"
           >
-            <RefreshCw size={15} className="spin text-blue-700" />
+            <RefreshCw size={15} className="spin shrink-0" />
             <span className="font-medium">
               Generating Envoy Executive Synthesis across {filteredDoc ? filteredDoc.filename : "active corpus"}…
             </span>
@@ -513,16 +513,16 @@ export function CopilotStream() {
         {summaryStatus === "error" && (
           <div
             role="alert"
-            className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center justify-between gap-3"
+            className="p-4 rounded-2xl bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-xs flex items-center justify-between gap-3"
           >
             <span className="flex items-center gap-2">
-              <AlertTriangle size={15} className="text-rose-700 shrink-0" />
+              <AlertTriangle size={15} className="shrink-0" />
               <span>{summaryError || "Failed to generate Executive Summary."}</span>
             </span>
             <button
               type="button"
               onClick={() => void requestExecutiveSummaryStream(selectedFileFilterId)}
-              className="px-2.5 py-1 rounded-md bg-white border border-rose-300 text-rose-900 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="px-2.5 py-1 rounded-md bg-[var(--bg-surface)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               Retry
             </button>
@@ -530,20 +530,20 @@ export function CopilotStream() {
         )}
 
         {/* Live Stream & Human Escalation Cards */}
-        <div role="status" aria-live="polite" className="space-y-4 pt-4 border-t border-zinc-200/80">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
+        <div role="status" aria-live="polite" className="space-y-4 pt-4 border-t border-[var(--border-subtle)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider font-mono tabular-nums">
             <span>Agent Telemetry & Verification Stream</span>
             <div className="flex items-center gap-3">
               {escalations.length > 0 && (
                 <Link
                   to="/triage"
                   data-testid="copilot-open-triage-link"
-                  className="text-[11px] font-sans normal-case tracking-normal font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                  className="text-[11px] font-sans normal-case tracking-normal font-semibold text-[var(--accent-brand-ink)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
                 >
                   Open in Triage Queue →
                 </Link>
               )}
-              <span>{visibleAgentRuns.length} Recorded Steps</span>
+              <span className="tabular-nums">{visibleAgentRuns.length} Recorded Steps</span>
             </div>
           </div>
 
@@ -577,50 +577,60 @@ export function CopilotStream() {
                 data-testid="escalation-card"
                 className={`p-5 rounded-2xl border shadow-sm text-xs space-y-3 ${
                   isOverride
-                    ? "bg-purple-50/75 border-purple-300"
+                    ? "bg-[var(--status-override-row)] border-[var(--status-override-border)]"
                     : isNA
-                      ? "bg-slate-50 border-slate-300"
+                      ? "bg-[var(--status-neutral-row)] border-[var(--status-neutral-border)]"
                       : isLegal
-                        ? "bg-amber-50/75 border-amber-300"
-                        : "bg-[#FEF2F2] border-[#FECACA]"
+                        ? "bg-[var(--status-warning-row)] border-[var(--status-warning-border)]"
+                        : "bg-[var(--status-danger-row)] border-[var(--status-danger-border)]"
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`px-2 py-0.5 rounded-md font-mono text-[10px] font-bold ${
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold text-white tabular-nums ${
                         isOverride
-                          ? "bg-purple-800 text-white"
+                          ? "bg-[var(--status-override-solid)]"
                           : isNA
-                            ? "bg-slate-700 text-white"
+                            ? "bg-[var(--status-neutral-solid)]"
                             : isLegal
-                              ? "bg-[#B45309] text-white"
-                              : "bg-[#B91C1C] text-white"
+                              ? "bg-[var(--status-warning-solid)]"
+                              : "bg-[var(--status-danger-solid)]"
                       }`}
                     >
-                      {displayPriority} ·{" "}
-                      {isOverride
-                        ? "HUMAN OVERRIDE"
-                        : isNA
-                          ? "MARKED N/A"
-                          : isLegal
-                            ? "LEGAL REVIEW"
-                            : "ESCALATION"}
+                      {isLegal ? (
+                        <Scale size={11} aria-hidden="true" />
+                      ) : isOverride ? (
+                        <Sparkles size={11} aria-hidden="true" />
+                      ) : (
+                        <AlertTriangle size={11} aria-hidden="true" />
+                      )}
+                      <span>
+                        {displayPriority} ·{" "}
+                        {isOverride
+                          ? "HUMAN OVERRIDE"
+                          : isNA
+                            ? "MARKED N/A"
+                            : isLegal
+                              ? "LEGAL REVIEW"
+                              : "ESCALATION"}
+                      </span>
                     </span>
-                    <span className="font-semibold text-zinc-950 font-ui">{item.category}</span>
+                    <span className="font-semibold text-[var(--text-primary)]">{item.category}</span>
                     {item.weak_evidence && (
                       <span
                         data-testid="weak-evidence-badge"
                         title={item.weak_evidence_reason || "Weak quote specificity"}
-                        className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300"
+                        className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]"
                       >
-                        Weak Evidence
+                        <AlertTriangle size={10} aria-hidden="true" />
+                        <span>Weak Evidence</span>
                       </span>
                     )}
                   </div>
                   <span
                     data-testid={isOverride ? "human-override-badge" : undefined}
-                    className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded border ${matchTone.badgeClass}`}
+                    className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded border tabular-nums ${matchTone.badgeClass}`}
                   >
                     {isOverride
                       ? "Human Override · Unverified by gate"
@@ -630,7 +640,9 @@ export function CopilotStream() {
                   </span>
                 </div>
 
-                <div className="text-sm font-semibold text-zinc-950">{item.prompt_or_question}</div>
+                <div className="text-sm font-semibold text-[var(--text-primary)]">
+                  {item.prompt_or_question}
+                </div>
 
                 {citation && (
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -654,25 +666,25 @@ export function CopilotStream() {
                           confidence_score: item.gate_telemetry.citation_match,
                         })
                       }
-                      className="text-[11px] font-semibold text-blue-700 hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                      className="text-[11px] font-semibold text-[var(--accent-brand-ink)] hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
                     >
                       Inspect source →
                     </button>
                   </div>
                 )}
 
-                <p className="text-zinc-800 leading-relaxed font-serif text-xs bg-white/90 p-3 rounded-xl border border-zinc-200">
+                <p className="text-[var(--text-primary)] leading-relaxed font-serif text-sm bg-[var(--bg-surface)] p-3 rounded-xl border border-[var(--border-subtle)]">
                   {item.fluent_output}
                 </p>
 
                 {isOverride ? (
-                  <div className="p-3 rounded-xl bg-white border border-purple-200 flex flex-wrap items-center justify-between gap-2">
-                    <div className="space-y-0.5 text-purple-950 text-[11px]">
-                      <div className="font-semibold">
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--status-override-border)] flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5 text-[var(--status-override-ink)] text-[11px]">
+                      <div className="font-semibold tabular-nums">
                         Human Override ({item.human_override_reason_code || "SME_ATTESTATION"}) · Match:{" "}
                         {Math.round(item.gate_telemetry.citation_match ?? 0)}% (Unverified by gate)
                       </div>
-                      <div className="text-zinc-700 font-mono text-[10px]">
+                      <div className="text-[var(--text-secondary)] font-mono text-[10px]">
                         {item.no_evidence_attestation
                           ? "No corpus evidence — reviewer attested"
                           : item.gate_telemetry?.override_citation_text
@@ -687,7 +699,7 @@ export function CopilotStream() {
                       <button
                         type="button"
                         onClick={() => void undoWorkItem(item.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-100 hover:bg-purple-200 border border-purple-300 text-purple-950 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--status-override-soft)] hover:opacity-90 border border-[var(--status-override-border)] text-[var(--status-override-ink)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         <RotateCcw size={12} />
                         <span>Undo Override</span>
@@ -695,12 +707,12 @@ export function CopilotStream() {
                     )}
                   </div>
                 ) : isNA ? (
-                  <div className="p-3 rounded-xl bg-white border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                    <div className="space-y-0.5 text-slate-900 text-[11px]">
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--status-neutral-border)] flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5 text-[var(--status-neutral-ink)] text-[11px]">
                       <div className="font-semibold">
                         Marked Not Applicable ({item.human_override_reason_code || "OUT_OF_SCOPE"})
                       </div>
-                      <div className="text-zinc-700 font-mono text-[10px]">
+                      <div className="text-[var(--text-secondary)] font-mono text-[10px]">
                         Priority {item.priority_tier} preserved (Original: {displayPriority})
                         {item.escalation_reason ? ` · Reason: ${item.escalation_reason}` : ""}
                       </div>
@@ -709,7 +721,7 @@ export function CopilotStream() {
                       <button
                         type="button"
                         onClick={() => void undoWorkItem(item.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-900 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--status-neutral-soft)] hover:opacity-90 border border-[var(--status-neutral-border)] text-[var(--status-neutral-ink)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         <RotateCcw size={12} />
                         <span>Undo N/A</span>
@@ -717,17 +729,17 @@ export function CopilotStream() {
                     )}
                   </div>
                 ) : isLegal ? (
-                  <div className="p-3 rounded-xl bg-white border border-amber-200 flex flex-wrap items-center justify-between gap-2">
-                    <div className="space-y-0.5 text-amber-950">
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--status-warning-border)] flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5 text-[var(--status-warning-ink)]">
                       <div className="flex items-center gap-1.5 font-semibold">
-                        <Scale size={13} className="text-amber-700" />
+                        <Scale size={13} />
                         <span>Assigned: {item.escalation_assignee || "Legal Counsel"}</span>
                       </div>
                       {item.escalation_reason && (
-                        <div className="text-[11px] text-amber-900">Reason: {item.escalation_reason}</div>
+                        <div className="text-[11px]">Reason: {item.escalation_reason}</div>
                       )}
                       {item.escalated_at && (
-                        <div className="text-[10px] font-mono text-zinc-600">
+                        <div className="text-[10px] font-mono text-[var(--text-muted)] tabular-nums">
                           Escalated {new Date(item.escalated_at).toLocaleString()}
                         </div>
                       )}
@@ -736,7 +748,7 @@ export function CopilotStream() {
                       <button
                         type="button"
                         onClick={() => void undoWorkItem(item.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--status-warning-soft)] hover:opacity-90 border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         <RotateCcw size={12} />
                         <span>Undo Legal Flag</span>
@@ -744,12 +756,12 @@ export function CopilotStream() {
                     )}
                   </div>
                 ) : inlineAnswerId === item.id ? (
-                  <div className="space-y-2.5 pt-2 border-t border-rose-200 bg-white/90 p-3 rounded-xl">
+                  <div className="space-y-2.5 pt-2 border-t border-[var(--status-danger-border)] bg-[var(--bg-surface)] p-3 rounded-xl">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label
                           htmlFor={`override-reason-${item.id}`}
-                          className="block text-[10px] font-semibold text-zinc-700 mb-1"
+                          className="block text-[10px] font-semibold text-[var(--text-secondary)] mb-1"
                         >
                           Override Reason Code
                         </label>
@@ -758,7 +770,7 @@ export function CopilotStream() {
                           aria-label="Override reason code"
                           value={manualReasonCode}
                           onChange={(e) => setManualReasonCode(e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         >
                           {MANUAL_OVERRIDE_REASON_CODES.map((rc) => (
                             <option key={rc.value} value={rc.value}>
@@ -770,7 +782,7 @@ export function CopilotStream() {
                       <div>
                         <label
                           htmlFor={`override-citation-${item.id}`}
-                          className="block text-[10px] font-semibold text-zinc-700 mb-1"
+                          className="block text-[10px] font-semibold text-[var(--text-secondary)] mb-1"
                         >
                           Citation / Source Reference (optional if attesting)
                         </label>
@@ -781,7 +793,7 @@ export function CopilotStream() {
                           value={manualCitationText}
                           onChange={(e) => setManualCitationText(e.target.value)}
                           placeholder="e.g. COI Policy #CYB-2026 p.1 or SOC 2 §4.1"
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                         />
                       </div>
                     </div>
@@ -789,7 +801,7 @@ export function CopilotStream() {
                     <div>
                       <label
                         htmlFor={`override-answer-${item.id}`}
-                        className="block text-[10px] font-semibold text-zinc-700 mb-1"
+                        className="block text-[10px] font-semibold text-[var(--text-secondary)] mb-1"
                       >
                         Substantive Override Answer (min 12 chars & 3 words)
                       </label>
@@ -803,17 +815,17 @@ export function CopilotStream() {
                           if (manualValidationError) setManualValidationError(null);
                         }}
                         placeholder="Enter substantive verified compliance answer (e.g. Vendor maintains $10M cyber coverage per COI)..."
-                        className="w-full px-3 py-2 rounded-lg bg-white border border-rose-300 text-xs text-zinc-900 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--status-danger-border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       />
                     </div>
 
-                    <label className="flex items-center gap-2 text-[11px] text-zinc-800 cursor-pointer">
+                    <label className="flex items-center gap-2 text-[11px] text-[var(--text-primary)] cursor-pointer">
                       <input
                         type="checkbox"
                         aria-label="No evidence — reviewer attests"
                         checked={noEvidenceAttestation}
                         onChange={(e) => setNoEvidenceAttestation(e.target.checked)}
-                        className="rounded border-zinc-300 text-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="rounded border-[var(--border-strong)] accent-[var(--status-override-solid)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       />
                       <span>No evidence — reviewer attests (manual SME sign-off without corpus quote)</span>
                     </label>
@@ -822,7 +834,7 @@ export function CopilotStream() {
                       <div
                         role="alert"
                         data-testid="override-validation-error"
-                        className="p-2 rounded-lg bg-rose-100 border border-rose-300 text-rose-950 text-[11px] font-semibold"
+                        className="p-2 rounded-lg bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-[11px] font-semibold"
                       >
                         {manualValidationError}
                       </div>
@@ -832,7 +844,7 @@ export function CopilotStream() {
                       <button
                         type="button"
                         onClick={() => void handleManualResolve(item.id)}
-                        className="px-3 py-1.5 rounded-lg bg-purple-800 hover:bg-purple-900 text-white font-medium text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--status-override-solid)] hover:opacity-90 text-white font-medium text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Save Human Override
                       </button>
@@ -842,15 +854,15 @@ export function CopilotStream() {
                           setInlineAnswerId(null);
                           setManualValidationError(null);
                         }}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-sunken)] hover:border-[var(--border-strong)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : naDialogId === item.id ? (
-                  <div className="space-y-2 pt-2 border-t border-rose-200 bg-white/90 p-3 rounded-xl">
-                    <div className="font-semibold text-zinc-900">
+                  <div className="space-y-2 pt-2 border-t border-[var(--status-danger-border)] bg-[var(--bg-surface)] p-3 rounded-xl">
+                    <div className="font-semibold text-[var(--text-primary)]">
                       Mark Not Applicable ({displayPriority} priority preserved)
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -861,7 +873,7 @@ export function CopilotStream() {
                           setNaReasonCode(e.target.value);
                           if (naValidationError) setNaValidationError(null);
                         }}
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         <option value="">Select N/A reason code…</option>
                         {NOT_APPLICABLE_REASON_CODES.map((rc) => (
@@ -879,14 +891,14 @@ export function CopilotStream() {
                           if (naValidationError) setNaValidationError(null);
                         }}
                         placeholder="Required rationale why N/A..."
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       />
                     </div>
                     {naValidationError && (
                       <div
                         role="alert"
                         data-testid="na-validation-error"
-                        className="p-2 rounded-lg bg-rose-100 border border-rose-300 text-rose-950 text-[11px] font-semibold"
+                        className="p-2 rounded-lg bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-[11px] font-semibold"
                       >
                         {naValidationError}
                       </div>
@@ -895,7 +907,7 @@ export function CopilotStream() {
                       <button
                         type="button"
                         onClick={() => void handleConfirmNotApplicable(item.id)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--status-neutral-solid)] hover:opacity-90 text-white font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Confirm Mark N/A
                       </button>
@@ -905,16 +917,16 @@ export function CopilotStream() {
                           setNaDialogId(null);
                           setNaValidationError(null);
                         }}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : legalDialogId === item.id ? (
-                  <div className="space-y-2 pt-2 border-t border-rose-200 bg-white/85 p-3 rounded-xl">
-                    <div className="font-semibold text-zinc-900 flex items-center gap-1.5">
-                      <Scale size={13} className="text-amber-700" />
+                  <div className="space-y-2 pt-2 border-t border-[var(--status-danger-border)] bg-[var(--bg-surface)] p-3 rounded-xl">
+                    <div className="font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <Scale size={13} className="text-[var(--status-warning-ink)]" />
                       <span>Flag for Legal Counsel ({displayPriority} priority preserved)</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -924,7 +936,7 @@ export function CopilotStream() {
                         value={legalAssignee}
                         onChange={(e) => setLegalAssignee(e.target.value)}
                         placeholder="Assignee (e.g. Outside Counsel)"
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       />
                       <input
                         type="text"
@@ -932,21 +944,21 @@ export function CopilotStream() {
                         value={legalReason}
                         onChange={(e) => setLegalReason(e.target.value)}
                         placeholder="Reason note for counsel..."
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       />
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => void handleConfirmLegalFlag(item.id)}
-                        className="px-3 py-1.5 rounded-lg bg-[#18181B] hover:bg-[#27272A] text-white font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--status-warning-solid)] hover:opacity-90 text-white font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Confirm Legal Flag
                       </button>
                       <button
                         type="button"
                         onClick={() => setLegalDialogId(null)}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         Cancel
                       </button>
@@ -963,7 +975,7 @@ export function CopilotStream() {
                         setLegalDialogId(null);
                         setManualText(item.fluent_output.includes("Insufficient") ? "" : item.fluent_output);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-rose-50 border border-rose-300 text-rose-900 font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       Override
                     </button>
@@ -984,7 +996,7 @@ export function CopilotStream() {
                                   "Accepted verified machine-extracted evidence."
                           )
                         }
-                        className="px-3 py-1.5 rounded-lg bg-[#047857] hover:bg-[#065F46] text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--status-verified-solid)] hover:opacity-90 text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                       >
                         {acceptState.label}
                       </button>
@@ -1000,7 +1012,7 @@ export function CopilotStream() {
                         setInlineAnswerId(null);
                         setLegalDialogId(null);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-900 font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="px-3 py-1.5 rounded-lg bg-[var(--status-neutral-soft)] hover:opacity-90 border border-[var(--status-neutral-border)] text-[var(--status-neutral-ink)] font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       Mark N/A
                     </button>
@@ -1012,14 +1024,14 @@ export function CopilotStream() {
                         setInlineAnswerId(null);
                         setNaDialogId(null);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-[#27272A] hover:bg-[#18181B] text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="px-3 py-1.5 rounded-lg bg-[var(--status-warning-solid)] hover:opacity-90 text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       Flag for Legal
                     </button>
 
                     <Link
                       to={`/triage?item=${encodeURIComponent(item.id)}`}
-                      className="ml-auto text-[11px] font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1 py-1"
+                      className="ml-auto text-[11px] font-semibold text-[var(--accent-brand-ink)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded px-1 py-1"
                     >
                       Open in Triage Queue →
                     </Link>
@@ -1040,30 +1052,35 @@ export function CopilotStream() {
               <div
                 key={msg.id}
                 data-testid={msg.summarySnapshot ? "executive-summary-card" : "chat-answer-card"}
-                className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-2xs space-y-2.5 text-xs"
+                className="p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-2xs space-y-2.5 text-xs"
               >
-                <div className="flex items-center justify-between gap-2 text-zinc-700">
-                  <span className="font-semibold text-zinc-950">User Query: “{msg.prompt}”</span>
+                <div className="flex items-center justify-between gap-2 text-[var(--text-secondary)]">
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    User Query: “{msg.prompt}”
+                  </span>
                   <div className="flex items-center gap-2 shrink-0">
                     {msg.weak_evidence && (
                       <span
                         data-testid="weak-evidence-badge"
                         title={msg.weak_evidence_reason || "Weak quote specificity"}
-                        className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 font-mono text-[10px] font-bold"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] font-mono text-[10px] font-bold"
                       >
-                        Weak Evidence
+                        <AlertTriangle size={10} aria-hidden="true" />
+                        <span>Weak Evidence</span>
                       </span>
                     )}
                     <button
                       type="button"
                       onClick={() => void handleCopyMessage(msg.id, msg.answer ?? "")}
                       aria-label={`Copy response for ${msg.prompt}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-medium text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--bg-sunken)] hover:border-[var(--border-strong)] border border-[var(--border-subtle)] text-[var(--text-primary)] font-medium text-[10px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       {copiedMsgId === msg.id ? <CheckCircle2 size={11} /> : <Copy size={11} />}
                       <span>{copiedMsgId === msg.id ? "Copied" : "Copy"}</span>
                     </button>
-                    <span className={`font-mono text-[10px] px-2 py-0.5 rounded border font-bold ${msgTone.badgeClass}`}>
+                    <span
+                      className={`font-mono text-[10px] px-2 py-0.5 rounded border font-bold tabular-nums ${msgTone.badgeClass}`}
+                    >
                       {msg.status === "VERIFIED"
                         ? `VERIFIED (${msg.match_score}%)`
                         : msg.match_score > 0
@@ -1074,35 +1091,35 @@ export function CopilotStream() {
                 </div>
 
                 {msg.summarySnapshot && (
-                  <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono">
-                    <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-semibold">
+                  <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono tabular-nums">
+                    <span className="px-2 py-0.5 rounded bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border border-[var(--accent-brand-border)] font-semibold">
                       {msg.summarySnapshot.defensibility_score ?? 0}% Defensibility
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 font-semibold">
+                    <span className="px-2 py-0.5 rounded bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border border-[var(--status-verified-border)] font-semibold">
                       {msg.summarySnapshot.verified_count}/{msg.summarySnapshot.total_work_items} Machine Verified
                     </span>
                     {(msg.summarySnapshot.human_override_count ?? 0) > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-950 border border-purple-300 font-semibold">
+                      <span className="px-2 py-0.5 rounded bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border border-[var(--status-override-border)] font-semibold">
                         {msg.summarySnapshot.human_override_count} Human Overridden
                       </span>
                     )}
                     {msg.summarySnapshot.escalated_legal_count > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 font-semibold">
+                      <span className="px-2 py-0.5 rounded bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] font-semibold">
                         {msg.summarySnapshot.escalated_legal_count} Escalated Legal
                       </span>
                     )}
                   </div>
                 )}
 
-                <p className="text-zinc-900 text-xs leading-relaxed bg-zinc-50 p-3 rounded-xl border border-zinc-100 whitespace-pre-wrap">
+                <p className="text-[var(--text-primary)] text-xs leading-relaxed bg-[var(--bg-sunken)] p-3 rounded-xl border border-[var(--border-subtle)] whitespace-pre-wrap">
                   {msg.answer || "Processing response through 7-agent verification gate..."}
                 </p>
 
                 {msg.citations.length > 0 && (
                   <div className="pt-1 space-y-2" role="group" aria-label="Verified source citations">
-                    <div className="text-[11px] font-semibold text-zinc-700 flex items-center gap-1.5">
-                      <ShieldCheck size={13} className="text-blue-700" />
-                      <span>Citations ({msg.citations.length}):</span>
+                    <div className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1.5">
+                      <ShieldCheck size={13} className="text-[var(--accent-brand-ink)]" />
+                      <span className="tabular-nums">Citations ({msg.citations.length}):</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {msg.citations.map((citation, idx) => {
@@ -1135,7 +1152,7 @@ export function CopilotStream() {
                               });
                             }}
                             aria-label={`Inspect citation in ${citation.document_filename}, page ${citation.page_number ?? 1}, confidence ${Math.round(citation.confidence_score)}%`}
-                            className="inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50/90 hover:bg-blue-100 border border-blue-200 text-blue-950 text-[11px] font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 shadow-2xs text-left"
+                            className="inline-flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--accent-brand-soft)] hover:opacity-90 border border-[var(--accent-brand-border)] text-[var(--accent-brand-ink)] text-[11px] font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 shadow-2xs text-left"
                           >
                             <EvidenceLocatorBadge
                               locator={resolvedLocator}
@@ -1148,7 +1165,9 @@ export function CopilotStream() {
                             <span className="font-semibold truncate max-w-[180px]" title={citation.document_filename}>
                               {citation.document_filename}
                             </span>
-                            <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded border shrink-0 font-bold ${citTone.badgeClass}`}>
+                            <span
+                              className={`font-mono text-[10px] px-1.5 py-0.5 rounded border shrink-0 font-bold tabular-nums ${citTone.badgeClass}`}
+                            >
                               {Math.round(citation.confidence_score)}% match
                             </span>
                           </button>
@@ -1163,7 +1182,7 @@ export function CopilotStream() {
 
           {/* Agent Activity Cards (One card per agent run, updated in place) */}
           {visibleAgentRuns.length === 0 ? (
-            <div className="p-8 text-center rounded-2xl bg-white border border-zinc-200/70 text-zinc-600 text-xs">
+            <div className="p-8 text-center rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-xs">
               {filteredDoc
                 ? `No agent telemetry recorded specifically for ${filteredDoc.filename} in this window.`
                 : "No agent events yet. Click Load Investor Demo Case or upload a document to start."}
@@ -1201,12 +1220,12 @@ export function CopilotStream() {
                   data-testid="agent-run-card"
                   data-agent-name={run.agentName}
                   data-run-status={run.status}
-                  className={`p-4 rounded-xl bg-white border shadow-2xs text-xs space-y-2 transition-colors ${
+                  className={`p-4 rounded-xl bg-[var(--bg-surface)] border shadow-2xs text-xs space-y-2 transition-colors ${
                     isFailed
-                      ? "border-rose-300 bg-rose-50/40"
+                      ? "border-[var(--status-danger-border)] bg-[var(--status-danger-row)]"
                       : isDone
-                        ? "border-zinc-200/90 hover:border-zinc-300"
-                        : "border-blue-300 bg-blue-50/20"
+                        ? "border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
+                        : "border-[var(--accent-brand-border)] bg-[var(--accent-brand-soft)]"
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1214,17 +1233,17 @@ export function CopilotStream() {
                       <span
                         className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
                           isFailed
-                            ? "bg-rose-100 text-rose-900"
+                            ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)]"
                             : isDone
-                              ? "bg-emerald-100 text-emerald-900"
-                              : "bg-blue-100 text-blue-900"
+                              ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)]"
+                              : "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)]"
                         }`}
                       >
                         {run.agentName.slice(0, 1)}
                       </span>
-                      <strong className="font-semibold text-zinc-950">{run.agentName}</strong>
-                      <span className="text-zinc-600 text-[11px] font-medium">· {run.role}</span>
-                      <span className="px-2 py-0.5 rounded bg-zinc-100 font-mono text-[10px] text-zinc-800 border border-zinc-200 truncate max-w-[200px]">
+                      <strong className="font-semibold text-[var(--text-primary)]">{run.agentName}</strong>
+                      <span className="text-[var(--text-secondary)] text-[11px] font-medium">· {run.role}</span>
+                      <span className="px-2 py-0.5 rounded bg-[var(--bg-sunken)] font-mono text-[10px] text-[var(--text-primary)] border border-[var(--border-subtle)] truncate max-w-[200px]">
                         {targetDocLabel}
                       </span>
                     </div>
@@ -1233,35 +1252,42 @@ export function CopilotStream() {
                       {elapsedLabel && (
                         <span
                           data-testid="agent-run-elapsed"
-                          className="font-mono text-[10px] font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200"
+                          className="font-mono text-[10px] font-semibold text-[var(--text-secondary)] bg-[var(--bg-sunken)] px-2 py-0.5 rounded border border-[var(--border-subtle)] tabular-nums"
                         >
                           {elapsedLabel}
                         </span>
                       )}
                       <span
-                        className={`font-mono text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                        className={`inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                           isFailed
-                            ? "bg-rose-100 text-rose-900 border border-rose-300"
+                            ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border border-[var(--status-danger-border)]"
                             : isDone
-                              ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
-                              : "bg-blue-50 text-blue-900 border border-blue-200"
+                              ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border border-[var(--status-verified-border)]"
+                              : "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border border-[var(--accent-brand-border)]"
                         }`}
                       >
-                        {isFailed ? "FAILED" : isDone ? "DONE" : "RUNNING"}
+                        {isFailed ? (
+                          <AlertTriangle size={10} aria-hidden="true" />
+                        ) : isDone ? (
+                          <CheckCircle2 size={10} aria-hidden="true" />
+                        ) : (
+                          <RefreshCw size={10} className="spin" aria-hidden="true" />
+                        )}
+                        <span>{isFailed ? "FAILED" : isDone ? "DONE" : "RUNNING"}</span>
                       </span>
                     </div>
                   </div>
 
-                  <p data-testid="agent-run-summary" className="text-zinc-900 text-xs leading-relaxed">
+                  <p data-testid="agent-run-summary" className="text-[var(--text-primary)] text-xs leading-relaxed">
                     {humanSummary}
                   </p>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-zinc-700 pt-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-[var(--text-secondary)] pt-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {run.inputHash && (
                         <span
                           title={run.inputHash}
-                          className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200"
+                          className="px-1.5 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)]"
                         >
                           in: {run.inputHash.slice(0, 10)}
                         </span>
@@ -1269,7 +1295,7 @@ export function CopilotStream() {
                       {run.outputHash && (
                         <span
                           title={run.outputHash}
-                          className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200"
+                          className="px-1.5 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)]"
                         >
                           out: {run.outputHash.slice(0, 10)}
                         </span>
@@ -1287,7 +1313,7 @@ export function CopilotStream() {
                           [run.id]: !prev[run.id],
                         }))
                       }
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-strong)] bg-[var(--bg-sunken)] hover:border-[var(--accent-brand-border)] text-[var(--text-primary)] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                     >
                       <Code2 size={11} />
                       <span>Raw JSON</span>
@@ -1299,7 +1325,7 @@ export function CopilotStream() {
                     <pre
                       id={rawPanelId}
                       data-testid="raw-json-panel"
-                      className="mt-2 p-2.5 rounded-lg bg-zinc-900 text-zinc-100 text-[10px] font-mono overflow-x-auto max-h-56 leading-relaxed"
+                      className="mt-2 p-2.5 rounded-lg bg-[var(--bg-hero)] text-[#F4F1EA] border border-[var(--border-subtle)] text-[10px] font-mono overflow-x-auto max-h-56 leading-relaxed"
                     >
                       {JSON.stringify(rawPayload, null, 2)}
                     </pre>

@@ -262,7 +262,7 @@ export function PdfViewer({ document: sourceDocument, nodes }: PdfViewerProps) {
             <Maximize2 size={13} /> Fit width
           </button>
           {sourceChip === "SCAN" && (
-            <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 font-mono text-[10px] font-bold">
+            <span className="px-1.5 py-0.5 rounded bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border border-[var(--status-danger-border)] font-mono text-[10px] font-bold">
               SCAN OCR
             </span>
           )}
@@ -278,7 +278,7 @@ export function PdfViewer({ document: sourceDocument, nodes }: PdfViewerProps) {
           >
             <ChevronUp size={14} />
           </button>
-          <span data-testid="page-indicator">
+          <span data-testid="page-indicator" className="tabular-nums">
             Page <strong>{currentPage}</strong> of <strong>{pdf?.numPages ?? totalPages}</strong>
           </span>
           <button
@@ -294,7 +294,7 @@ export function PdfViewer({ document: sourceDocument, nodes }: PdfViewerProps) {
       </div>
 
       {offlineFallback && (
-        <div className="px-3 py-1.5 bg-amber-50 border-b border-amber-200 text-amber-900 text-[11px] flex items-center justify-between">
+        <div className="px-3 py-1.5 bg-[var(--status-warning-soft)] border-b border-[var(--status-warning-border)] text-[var(--status-warning-ink)] text-[11px] flex items-center justify-between">
           <span>Offline spatial layout preview (source PDF stream unavailable locally)</span>
           <span className="font-mono text-[10px]">
             {formatLocatorDisplay(activeLocator, sourceDocument, effectiveHighlight?.pageNumber, effectiveHighlight).label}
@@ -322,7 +322,7 @@ export function PdfViewer({ document: sourceDocument, nodes }: PdfViewerProps) {
               return (
                 <div
                   key={`${sourceDocument.id}-ph-${pageNum}`}
-                  className="pdf-page flex items-center justify-center text-xs font-mono text-zinc-600"
+                  className="pdf-page flex items-center justify-center text-xs font-mono text-[#524E47] tabular-nums"
                   data-page={pageNum}
                   ref={(element) => setPageElement(pageNum, element)}
                   style={{
@@ -655,7 +655,7 @@ function OfflinePdfFallbackPage({
     if (!ctx) return;
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#18181B";
+    ctx.fillStyle = "#181715";
     ctx.font = `${Math.max(10, Math.round(11 * zoomLevel))}px sans-serif`;
     pageNodes.forEach((node, idx) => {
       const nodeRect = node.bounding_box

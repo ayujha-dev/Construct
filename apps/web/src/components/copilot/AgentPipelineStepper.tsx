@@ -88,14 +88,14 @@ export function AgentPipelineStepper() {
 
   const badgeStyle =
     badgeState === "Running"
-      ? "bg-blue-50 text-blue-900 border-blue-200"
+      ? "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border-[var(--accent-brand-border)]"
       : badgeState === "Paused"
-        ? "bg-amber-50 text-amber-950 border-amber-300"
+        ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
         : badgeState === "Completed"
-          ? "bg-emerald-50 text-emerald-950 border-emerald-200"
+          ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
           : badgeState === "Failed"
-            ? "bg-rose-50 text-rose-950 border-rose-300"
-            : "bg-zinc-100 text-zinc-800 border-zinc-200";
+            ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
+            : "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]";
 
   const wsLabel =
     wsStatus === "connected"
@@ -108,16 +108,16 @@ export function AgentPipelineStepper() {
 
   const wsBadgeStyle =
     wsStatus === "connected"
-      ? "bg-emerald-50 text-emerald-900 border-emerald-200"
+      ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
       : wsStatus === "connecting" || wsStatus === "reconnecting"
-        ? "bg-amber-50 text-amber-900 border-amber-200"
-        : "bg-zinc-100 text-zinc-800 border-zinc-300";
+        ? "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
+        : "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]";
 
   return (
     <section
       aria-label="7-Agent Pipeline Stepper"
       data-testid="agent-pipeline-stepper"
-      className="border-b border-zinc-200/90 bg-zinc-50/80 px-3 lg:px-4 py-2 shrink-0 relative z-10"
+      className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 lg:px-4 py-2 shrink-0 relative z-10"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Left: Job Status + Pause/Resume + WS Status */}
@@ -126,19 +126,20 @@ export function AgentPipelineStepper() {
             role="status"
             aria-live="polite"
             data-testid="pipeline-status-badge"
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${badgeStyle}`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold tabular-nums ${badgeStyle}`}
           >
             <span
+              aria-hidden="true"
               className={`w-2 h-2 rounded-full ${
                 badgeState === "Running"
-                  ? "bg-blue-600 animate-ping"
+                  ? "bg-[var(--accent-brand)] animate-ping"
                   : badgeState === "Paused"
-                    ? "bg-amber-600"
+                    ? "bg-[var(--status-warning-solid)]"
                     : badgeState === "Completed"
-                      ? "bg-emerald-600"
+                      ? "bg-[var(--status-verified-solid)]"
                       : badgeState === "Failed"
-                        ? "bg-rose-600"
-                        : "bg-zinc-500"
+                        ? "bg-[var(--status-danger-solid)]"
+                        : "bg-[var(--status-neutral-solid)]"
               }`}
             />
             <span>
@@ -153,7 +154,7 @@ export function AgentPipelineStepper() {
               type="button"
               data-testid="stepper-pause-btn"
               onClick={() => void pauseJob()}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 text-[11px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--status-warning-soft)] hover:opacity-90 border border-[var(--status-warning-border)] text-[var(--status-warning-ink)] text-[11px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               <Pause size={11} />
               <span>Pause</span>
@@ -165,7 +166,7 @@ export function AgentPipelineStepper() {
               type="button"
               data-testid="stepper-resume-btn"
               onClick={() => void resumeJob()}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 text-emerald-950 text-[11px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--status-verified-soft)] hover:opacity-90 border border-[var(--status-verified-border)] text-[var(--status-verified-ink)] text-[11px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
             >
               <Play size={11} />
               <span>Resume</span>
@@ -198,12 +199,12 @@ export function AgentPipelineStepper() {
 
             const pillClasses =
               step.status === "done"
-                ? "bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100"
+                ? "bg-[var(--status-verified-soft)] border-[var(--status-verified-border)] text-[var(--status-verified-ink)] hover:opacity-95"
                 : step.status === "running"
-                  ? "bg-blue-50 border-blue-400 text-blue-950 ring-1 ring-blue-300 hover:bg-blue-100"
+                  ? "bg-[var(--accent-brand-soft)] border-[var(--accent-brand-border)] text-[var(--accent-brand-ink)] ring-1 ring-[var(--accent-brand-ring)]"
                   : step.status === "failed"
-                    ? "bg-rose-50 border-rose-300 text-rose-950 hover:bg-rose-100"
-                    : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-100";
+                    ? "bg-[var(--status-danger-soft)] border-[var(--status-danger-border)] text-[var(--status-danger-ink)]"
+                    : "bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]";
 
             const tooltip = `${step.agentName} (${step.role}) · ${step.status}${
               elapsedStr ? ` · ${elapsedStr}` : ""
@@ -221,19 +222,19 @@ export function AgentPipelineStepper() {
                   }`}
                   title={tooltip}
                   onClick={() => setSelectedStepIdx(isSelected ? null : idx)}
-                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${pillClasses} ${
-                    isSelected ? "shadow-xs ring-2 ring-blue-600" : ""
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${pillClasses} ${
+                    isSelected ? "shadow-xs ring-2 ring-[var(--accent-brand-ring)]" : ""
                   }`}
                 >
                   <span
                     className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
                       step.status === "done"
-                        ? "bg-emerald-700 text-white"
+                        ? "bg-[var(--status-verified-solid)] text-white"
                         : step.status === "running"
-                          ? "bg-blue-700 text-white"
+                          ? "bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)]"
                           : step.status === "failed"
-                            ? "bg-rose-700 text-white"
-                            : "bg-zinc-200 text-zinc-700"
+                            ? "bg-[var(--status-danger-solid)] text-white"
+                            : "bg-[var(--bg-sunken)] text-[var(--text-secondary)]"
                     }`}
                   >
                     {step.status === "done" ? (
@@ -250,7 +251,7 @@ export function AgentPipelineStepper() {
                   <span className="font-semibold">{step.agentName}</span>
 
                   {elapsedStr && (
-                    <span className="font-mono text-[10px] text-zinc-700">
+                    <span className="font-mono text-[10px] opacity-90 tabular-nums">
                       {elapsedStr}
                     </span>
                   )}
@@ -259,7 +260,7 @@ export function AgentPipelineStepper() {
                 {idx < agentSteps.length - 1 && (
                   <ChevronRight
                     size={12}
-                    className="text-zinc-500 shrink-0"
+                    className="text-[var(--text-muted)] shrink-0"
                     aria-hidden="true"
                   />
                 )}
@@ -273,33 +274,35 @@ export function AgentPipelineStepper() {
       {selectedStep && (
         <div
           data-testid="stepper-detail-panel"
-          className="mt-2 p-2.5 rounded-xl bg-white border border-zinc-200 shadow-xs text-xs flex flex-wrap items-start justify-between gap-3"
+          className="mt-2 p-2.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-xs text-xs flex flex-wrap items-start justify-between gap-3"
         >
           <div className="space-y-1 min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <strong className="text-zinc-950 font-semibold">
+              <strong className="text-[var(--text-primary)] font-semibold tabular-nums">
                 {selectedStep.index + 1}. {selectedStep.agentName}
               </strong>
-              <span className="text-zinc-700 font-medium">({selectedStep.role})</span>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-200 uppercase font-semibold">
+              <span className="text-[var(--text-secondary)] font-medium">
+                ({selectedStep.role})
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-sunken)] text-[var(--text-primary)] border border-[var(--border-subtle)] uppercase font-semibold">
                 {selectedStep.status}
               </span>
               {selectedStep.elapsedMs !== null && (
-                <span className="font-mono text-[10px] text-zinc-700">
+                <span className="font-mono text-[10px] text-[var(--text-secondary)] tabular-nums">
                   {formatElapsedMs(selectedStep.elapsedMs)}
                 </span>
               )}
               {selectedStep.documentFilename && (
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200">
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border border-[var(--accent-brand-border)]">
                   {selectedStep.documentFilename}
                 </span>
               )}
             </div>
-            <p className="text-zinc-800">
+            <p className="text-[var(--text-secondary)]">
               {selectedStep.summary || `${selectedStep.role} awaiting execution.`}
             </p>
             {(selectedStep.inputHash || selectedStep.outputHash) && (
-              <div className="flex flex-wrap gap-3 font-mono text-[10px] text-zinc-700">
+              <div className="flex flex-wrap gap-3 font-mono text-[10px] text-[var(--text-muted)]">
                 {selectedStep.inputHash && (
                   <span title={selectedStep.inputHash}>
                     in: {selectedStep.inputHash.slice(0, 12)}
@@ -316,7 +319,7 @@ export function AgentPipelineStepper() {
           <button
             type="button"
             onClick={() => setSelectedStepIdx(null)}
-            className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="px-2 py-1 rounded-md bg-[var(--bg-sunken)] hover:bg-[var(--border-subtle)] text-[var(--text-primary)] text-[11px] font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             Close
           </button>

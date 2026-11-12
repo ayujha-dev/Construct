@@ -1,0 +1,221 @@
+/*
+ * BERT Design System Tokens — "Audit Ledger / Evidence Dossier" Aesthetic
+ *
+ * Font Licensing Provenance (Self-Hosted Offline Mode via @fontsource):
+ * - Instrument Serif (@fontsource/instrument-serif): SIL Open Font License 1.1 (OFL-1.1)
+ * - Plus Jakarta Sans (@fontsource/plus-jakarta-sans): SIL Open Font License 1.1 (OFL-1.1)
+ * - JetBrains Mono (@fontsource/jetbrains-mono): SIL Open Font License 1.1 (OFL-1.1)
+ * Zero runtime external CDN or Google Fonts requests required.
+ */
+
+@theme {
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Font stacks */
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Surfaces & Hairlines (Warm Archival Paper) */
+  --bg-canvas: #FAF8F5;
+  --bg-surface: #FFFFFF;
+  --bg-sunken: #F3F0EA;
+  --bg-elevated: #FFFDF9;
+  --bg-hero: #101A29;
+  --bg-hero-card: #162438;
+  --border-subtle: #E2DDD3;
+  --border-strong: #C6BEB0;
+
+  /* Typography Ink */
+  --text-primary: #181715;
+  --text-secondary: #524E47;
+  --text-muted: #625D54;
+
+  /* Confident Brand Accent: Archival Prussian Cobalt */
+  --accent-brand: #1B4965;
+  --accent-brand-hover: #14384F;
+  --accent-brand-soft: #EBF2F7;
+  --accent-brand-ink: #1B4965;
+  --accent-brand-border: #B8CFE0;
+  --accent-brand-contrast: #FFFFFF;
+  --accent-brand-ring: #1B4965;
+
+  /* Semantic Status: Verified (Emerald Teal) */
+  --status-verified-solid: #0D6B50;
+  --status-verified-soft: #E7F6F0;
+  --status-verified-ink: #0A5740;
+  --status-verified-border: #A7DEC9;
+  --status-verified-row: #F2FAF6;
+
+  /* Semantic Status: Human Override (Plum Violet) */
+  --status-override-solid: #6B348A;
+  --status-override-soft: #F4ECF9;
+  --status-override-ink: #582873;
+  --status-override-border: #D6B8EA;
+  --status-override-row: #F9F4FC;
+
+  /* Semantic Status: Escalated Legal / Warning (Burnished Amber) */
+  --status-warning-solid: #924D00;
+  --status-warning-soft: #FDF2DF;
+  --status-warning-ink: #7D4000;
+  --status-warning-border: #ECC589;
+  --status-warning-row: #FEF8EC;
+
+  /* Semantic Status: Not Applicable / Neutral (Iron Slate) */
+  --status-neutral-solid: #4A525D;
+  --status-neutral-soft: #EEF0F3;
+  --status-neutral-ink: #3D444E;
+  --status-neutral-border: #C9CFD7;
+  --status-neutral-row: #F5F6F8;
+
+  /* Semantic Status: Risk / P0 / Insufficient / Error (Crimson Ink) */
+  --status-danger-solid: #9E1C28;
+  --status-danger-soft: #FCEBED;
+  --status-danger-ink: #8A1520;
+  --status-danger-border: #EBB3B9;
+  --status-danger-row: #FDF4F5;
+
+  /* Viewer & Code Syntax */
+  --pdf-stage-bg: #EBE6DC;
+  --pdf-page-bg: #FFFFFF;
+  --dot-grid-dot: #D7D0C3;
+  --scrollbar-thumb: #C6BEB0;
+  --scrollbar-thumb-hover: #9C9383;
+  --syntax-key: #1B4965;
+  --syntax-string: #0A5740;
+  --syntax-number: #7D4000;
+  --syntax-boolean: #8A1520;
+  --syntax-null: #582873;
+
+  /* Spacing, Radius, Elevation & Motion */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+
+  --shadow-card: 0 4px 20px -2px rgba(24, 23, 21, 0.06), 0 1px 3px 0 rgba(24, 23, 21, 0.04);
+  --shadow-elevated: 0 20px 40px -15px rgba(24, 23, 21, 0.14), 0 0 1px 1px rgba(24, 23, 21, 0.06);
+  --shadow-xl: 0 25px 50px -12px rgba(24, 23, 21, 0.22);
+
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+  --motion-slow: 360ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Legacy alias support */
+  --canvas-bg: var(--bg-canvas);
+  --canvas-surface: var(--bg-surface);
+  --midnight-hero: var(--bg-hero);
+  --royal-blue: var(--accent-brand);
+}
+
+[data-theme="dark"],
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces & Hairlines (Obsidian Ledger) */
+  --bg-canvas: #0E1117;
+  --bg-surface: #151B23;
+  --bg-sunken: #1C2430;
+  --bg-elevated: #1F2836;
+  --bg-hero: #0A0E14;
+  --bg-hero-card: #121A26;
+  --border-subtle: #2B3544;
+  --border-strong: #3B485C;
+
+  /* Typography Ink */
+  --text-primary: #F4F1EA;
+  --text-secondary: #C8C2B6;
+  --text-muted: #ACA599;
+
+  /* Confident Brand Accent: Archival Prussian Cobalt */
+  --accent-brand: #265D80;
+  --accent-brand-hover: #317099;
+  --accent-brand-soft: #162C3D;
+  --accent-brand-ink: #82C4EC;
+  --accent-brand-border: #2E5673;
+  --accent-brand-contrast: #FFFFFF;
+  --accent-brand-ring: #68B5E3;
+
+  /* Semantic Status: Verified (Emerald Teal) */
+  --status-verified-solid: #11785B;
+  --status-verified-soft: #112E26;
+  --status-verified-ink: #6CE0B7;
+  --status-verified-border: #1F5E4B;
+  --status-verified-row: #122620;
+
+  /* Semantic Status: Human Override (Plum Violet) */
+  --status-override-solid: #733B96;
+  --status-override-soft: #281A36;
+  --status-override-ink: #D9AEF7;
+  --status-override-border: #533273;
+  --status-override-row: #22182D;
+
+  /* Semantic Status: Escalated Legal / Warning (Burnished Amber) */
+  --status-warning-solid: #9A5200;
+  --status-warning-soft: #30220E;
+  --status-warning-ink: #F7BE68;
+  --status-warning-border: #6E4B19;
+  --status-warning-row: #271D10;
+
+  /* Semantic Status: Not Applicable / Neutral (Iron Slate) */
+  --status-neutral-solid: #4E5866;
+  --status-neutral-soft: #202733;
+  --status-neutral-ink: #C4CCD7;
+  --status-neutral-border: #3D495C;
+  --status-neutral-row: #1A202B;
+
+  /* Semantic Status: Risk / P0 / Insufficient / Error (Crimson Ink) */
+  --status-danger-solid: #A8212E;
+  --status-danger-soft: #36171C;
+  --status-danger-ink: #FF9BA3;
+  --status-danger-border: #722B33;
+  --status-danger-row: #2B1519;
+
+  /* Viewer & Code Syntax */
+  --pdf-stage-bg: #0B0F15;
+  --pdf-page-bg: #FFFFFF;
+  --dot-grid-dot: #263142;
+  --scrollbar-thumb: #3B485C;
+  --scrollbar-thumb-hover: #53637C;
+  --syntax-key: #82C4EC;
+  --syntax-string: #6CE0B7;
+  --syntax-number: #F7BE68;
+  --syntax-boolean: #FF9BA3;
+  --syntax-null: #D9AEF7;
+
+  --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.38), 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+  --shadow-elevated: 0 20px 40px -15px rgba(0, 0, 0, 0.55), 0 0 1px 1px rgba(255, 255, 255, 0.06);
+  --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.65);
+
+  --canvas-bg: var(--bg-canvas);
+  --canvas-surface: var(--bg-surface);
+  --midnight-hero: var(--bg-hero);
+  --royal-blue: var(--accent-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  [data-theme="light"],
+  [data-theme="dark"],
+  .dark {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}

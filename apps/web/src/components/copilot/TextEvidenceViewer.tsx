@@ -85,10 +85,12 @@ export function TextEvidenceViewer({ document: sourceDocument, nodes }: TextEvid
   return (
     <section className="text-viewer" aria-label={`${sourceDocument.filename} text preview`}>
       <div className="viewer-toolbar">
-        <span className="font-mono text-[11px] font-semibold text-zinc-700">
+        <span className="font-mono text-[11px] font-semibold text-[var(--text-primary)]">
           {sourceDocument.filename}
         </span>
-        <span className="font-mono text-[11px] text-zinc-600">{lines.length} lines</span>
+        <span className="font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
+          {lines.length} lines
+        </span>
       </div>
       <div className="text-viewer-scroll">
         {lines.map((line, index) => {
@@ -107,7 +109,7 @@ export function TextEvidenceViewer({ document: sourceDocument, nodes }: TextEvid
               onClick={() => {
                 if (matchingNode) setSelectedNode(matchingNode.id);
               }}
-              className={`text-viewer-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              className={`text-viewer-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isFocused ? "text-line-focused highlight-box" : ""
               }`}
             >

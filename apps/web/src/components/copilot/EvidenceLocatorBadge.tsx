@@ -13,11 +13,11 @@ interface EvidenceLocatorBadgeProps {
 }
 
 const CHIP_STYLES: Record<SourceTypeChip, string> = {
-  PDF: "bg-blue-50 text-blue-800 border-blue-200",
-  SCAN: "bg-rose-50 text-rose-800 border-rose-200",
-  XLSX: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  JSON: "bg-amber-50 text-amber-900 border-amber-200",
-  TXT: "bg-zinc-100 text-zinc-800 border-zinc-300",
+  PDF: "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border-[var(--accent-brand-border)]",
+  SCAN: "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]",
+  XLSX: "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]",
+  JSON: "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]",
+  TXT: "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]",
 };
 
 export function EvidenceLocatorBadge({
@@ -37,7 +37,7 @@ export function EvidenceLocatorBadge({
   }, [context, display.valid, document?.filename, fallbackPage]);
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+    <span className="inline-flex flex-wrap items-center gap-1.5 font-mono text-[10px] tabular-nums">
       <span
         data-testid="source-type-chip"
         className={`px-1.5 py-0.5 rounded border font-bold tracking-tight ${CHIP_STYLES[display.chip]}`}
@@ -47,7 +47,7 @@ export function EvidenceLocatorBadge({
 
       {display.valid ? (
         <span
-          className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 truncate max-w-[200px]"
+          className="px-1.5 py-0.5 rounded bg-[var(--bg-sunken)] text-[var(--text-secondary)] border border-[var(--border-subtle)] truncate max-w-[200px]"
           title={display.detail}
         >
           {display.label}
@@ -55,10 +55,10 @@ export function EvidenceLocatorBadge({
       ) : (
         <span
           data-testid="missing-locator-warning"
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 font-semibold"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] font-semibold"
           title={display.detail}
         >
-          <AlertTriangle size={11} className="text-amber-700 shrink-0" />
+          <AlertTriangle size={11} className="text-[var(--status-warning-ink)] shrink-0" />
           <span>No source locator stored</span>
         </span>
       )}
@@ -67,8 +67,8 @@ export function EvidenceLocatorBadge({
         <span
           className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-semibold ${
             regionMatchScore >= 97
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-900 border-amber-200"
+              ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
+              : "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]"
           }`}
           title={`Region text vs claimed quote verification: ${regionMatchScore.toFixed(1)}%`}
         >

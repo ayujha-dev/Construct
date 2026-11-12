@@ -469,8 +469,9 @@ export function getMatchBadgeTone(
       label: "Human Override",
       scoreDisplay: "Unverified by gate",
       gateLabel: "Reviewer override",
-      badgeClass: "bg-purple-100 text-purple-950 border border-purple-300",
-      textClass: "text-purple-950",
+      badgeClass:
+        "bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border border-[var(--status-override-border)]",
+      textClass: "text-[var(--status-override-ink)]",
       isMachineVerified: false,
     };
   }
@@ -481,8 +482,9 @@ export function getMatchBadgeTone(
       label: "Marked N/A",
       scoreDisplay: "N/A",
       gateLabel: "Reviewer marked N/A",
-      badgeClass: "bg-zinc-100 text-zinc-900 border border-zinc-300",
-      textClass: "text-zinc-800",
+      badgeClass:
+        "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border border-[var(--status-neutral-border)]",
+      textClass: "text-[var(--status-neutral-ink)]",
       isMachineVerified: false,
     };
   }
@@ -493,8 +495,9 @@ export function getMatchBadgeTone(
       label: safeScore > 0 ? `${formatted}% · Legal Review` : "Legal Review",
       scoreDisplay: `${formatted}%`,
       gateLabel: "Escalated to counsel",
-      badgeClass: "bg-amber-100 text-amber-950 border border-amber-300",
-      textClass: "text-amber-950",
+      badgeClass:
+        "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]",
+      textClass: "text-[var(--status-warning-ink)]",
       isMachineVerified: false,
     };
   }
@@ -505,8 +508,9 @@ export function getMatchBadgeTone(
       label: `${formatted}% (Weak)`,
       scoreDisplay: `${formatted}%`,
       gateLabel: "Weak quote flagged",
-      badgeClass: "bg-amber-100 text-amber-950 border border-amber-300",
-      textClass: "text-amber-950",
+      badgeClass:
+        "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]",
+      textClass: "text-[var(--status-warning-ink)]",
       isMachineVerified: false,
     };
   }
@@ -517,8 +521,9 @@ export function getMatchBadgeTone(
       label: `${formatted}% Match`,
       scoreDisplay: `${formatted}%`,
       gateLabel: "rapidfuzz gate",
-      badgeClass: "bg-emerald-100 text-emerald-950 border border-emerald-200",
-      textClass: "text-emerald-900",
+      badgeClass:
+        "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border border-[var(--status-verified-border)]",
+      textClass: "text-[var(--status-verified-ink)]",
       isMachineVerified: true,
     };
   }
@@ -529,8 +534,9 @@ export function getMatchBadgeTone(
       label: `${formatted}% Match`,
       scoreDisplay: `${formatted}%`,
       gateLabel: "Needs verification",
-      badgeClass: "bg-amber-100 text-amber-950 border border-amber-300",
-      textClass: "text-amber-950",
+      badgeClass:
+        "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)]",
+      textClass: "text-[var(--status-warning-ink)]",
       isMachineVerified: false,
     };
   }
@@ -540,8 +546,9 @@ export function getMatchBadgeTone(
     label: `${formatted}% Match`,
     scoreDisplay: `${formatted}%`,
     gateLabel: safeScore > 0 ? "Below threshold" : "Unverified by gate",
-    badgeClass: "bg-rose-100 text-rose-950 border border-rose-200",
-    textClass: "text-rose-900",
+    badgeClass:
+      "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border border-[var(--status-danger-border)]",
+    textClass: "text-[var(--status-danger-ink)]",
     isMachineVerified: false,
   };
 }

@@ -47,7 +47,7 @@ function HighlightedExcerpt({ text, highlight }: { text: string; highlight: stri
   return (
     <span>
       {before}
-      <mark className="bg-amber-200 text-zinc-950 px-1 py-0.5 rounded font-semibold">
+      <mark className="bg-[#F7BE68] text-[#181715] px-1 py-0.5 rounded font-semibold">
         {highlight}
       </mark>
       {after}
@@ -150,14 +150,14 @@ export function LandingPage() {
   const hasStagedFiles = stagedFiles.length > 0;
 
   return (
-    <div className="w-full overflow-x-clip">
+    <div className="w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
       {/* SECTION 1: Hero & Interactive Intake Card */}
       <section
         id="hero"
-        className="relative bg-[#0B1026] text-white overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14"
+        className="relative bg-[var(--bg-hero)] text-[#F4F1EA] overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14"
       >
         <Particles
-          particleColors={["#ffffff", "#93c5fd", "#c7d2fe"]}
+          particleColors={["#F4F1EA", "#82C4EC", "#C8C2B6"]}
           particleCount={140}
           speed={0.07}
           connections={true}
@@ -167,7 +167,7 @@ export function LandingPage() {
         />
 
         <div className="relative z-10 w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-          {/* Left Column: Clean WeTransfer-style Intake Card */}
+          {/* Left Column: Clean Dossier Intake Card */}
           <div className="lg:col-span-5 flex justify-center lg:justify-start min-w-0">
             <div
               data-testid="landing-intake-card"
@@ -177,19 +177,21 @@ export function LandingPage() {
               }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
-              className={`w-full max-w-md rounded-3xl bg-white p-5 sm:p-6 shadow-2xl text-zinc-900 border transition-colors ${
-                isDragging ? "border-blue-600 ring-4 ring-blue-500/25" : "border-zinc-200"
+              className={`w-full max-w-md rounded-3xl bg-[var(--bg-surface)] p-5 sm:p-6 shadow-2xl text-[var(--text-primary)] border transition-colors ${
+                isDragging
+                  ? "border-[var(--accent-brand-ring)] ring-4 ring-[var(--accent-brand-soft)]"
+                  : "border-[var(--border-subtle)]"
               }`}
             >
               {/* Card Header */}
-              <div className="flex items-center justify-between gap-2 pb-3 border-b border-zinc-200">
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded-full bg-blue-50 text-blue-800 flex items-center justify-center text-xs font-semibold shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] flex items-center justify-center text-xs font-semibold shrink-0">
                     {hasStagedFiles ? <Check size={13} strokeWidth={2.5} /> : <UploadCloud size={13} />}
                   </div>
                   <span
                     data-testid="staged-files-count"
-                    className="text-xs font-semibold text-zinc-900 truncate"
+                    className="text-xs font-semibold text-[var(--text-primary)] truncate tabular-nums"
                   >
                     {stagedFiles.length === 0
                       ? "0 files staged"
@@ -205,7 +207,7 @@ export function LandingPage() {
                   multiple
                   accept=".pdf,.xlsx,.xls,.csv,.json,.txt,.md"
                   aria-label="Select documents or spreadsheets to stage"
-                  className="sr-only focus-visible:ring-2 focus-visible:ring-blue-600"
+                  className="sr-only focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                 />
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -214,7 +216,7 @@ export function LandingPage() {
                       type="button"
                       data-testid="clear-staged-files"
                       onClick={clearAllStagedFiles}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-700 hover:text-rose-700 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1.5 py-0.5"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--status-danger-ink)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded px-1.5 py-0.5"
                     >
                       <Trash2 size={12} />
                       <span>Clear</span>
@@ -223,7 +225,7 @@ export function LandingPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-800 hover:text-blue-950 bg-blue-50 hover:bg-blue-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded-lg px-2 py-1"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--accent-brand-ink)] bg-[var(--accent-brand-soft)] hover:opacity-90 border border-[var(--accent-brand-border)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded-lg px-2 py-1"
                   >
                     <Plus size={14} />
                     <span>Add files</span>
@@ -237,13 +239,13 @@ export function LandingPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 hover:bg-zinc-100 px-4 py-5 text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                    className="w-full rounded-2xl border-2 border-dashed border-[var(--border-strong)] bg-[var(--bg-sunken)] hover:border-[var(--accent-brand-border)] px-4 py-5 text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                   >
-                    <UploadCloud size={22} className="mx-auto text-blue-700 mb-2" />
-                    <span className="block text-xs font-semibold text-zinc-900">
+                    <UploadCloud size={22} className="mx-auto text-[var(--accent-brand-ink)] mb-2" />
+                    <span className="block text-xs font-semibold text-[var(--text-primary)]">
                       Drop PDFs, .xlsx questionnaires, or .json IAM configs
                     </span>
-                    <span className="block text-[11px] text-zinc-700 mt-1">
+                    <span className="block text-[11px] text-[var(--text-secondary)] mt-1">
                       Supports .pdf, .xlsx, .json, .txt, .md · Multi-file batch upload
                     </span>
                   </button>
@@ -253,28 +255,28 @@ export function LandingPage() {
                       <div
                         key={f.id}
                         data-testid="staged-file-item"
-                        className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs"
+                        className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs"
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-200 font-bold text-zinc-900 shrink-0">
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] font-bold text-[var(--text-primary)] shrink-0">
                             {f.typeLabel}
                           </span>
                           <span
-                            className="font-medium text-zinc-900 truncate"
+                            className="font-medium text-[var(--text-primary)] truncate"
                             title={f.name}
                           >
                             {f.name}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-zinc-700 font-mono text-[11px]">
+                          <span className="text-[var(--text-secondary)] font-mono text-[11px] tabular-nums">
                             {f.sizeLabel}
                           </span>
                           <button
                             type="button"
                             onClick={() => removeStagedFile(i)}
                             aria-label={`Remove ${f.name}`}
-                            className="p-1 rounded text-zinc-700 hover:text-rose-700 hover:bg-rose-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                            className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--status-danger-ink)] hover:bg-[var(--status-danger-soft)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
                           >
                             <X size={13} />
                           </button>
@@ -286,22 +288,22 @@ export function LandingPage() {
               </div>
 
               {/* Deterministic Contract Summary */}
-              <div className="space-y-2.5 py-3 border-t border-zinc-200 text-xs">
-                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-zinc-900">
+              <div className="space-y-2.5 py-3 border-t border-[var(--border-subtle)] text-xs">
+                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <span className="font-medium">Pipeline</span>
-                  <span className="font-mono text-[11px] text-zinc-700">
+                  <span className="font-mono text-[11px] text-[var(--text-secondary)] tabular-nums">
                     7-Agent Regiment
                   </span>
                 </div>
-                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-zinc-900">
+                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <span className="font-medium">Verification Gate</span>
-                  <span className="font-mono text-[11px] text-emerald-900 font-semibold">
+                  <span className="font-mono text-[11px] text-[var(--status-verified-ink)] font-semibold tabular-nums">
                     rapidfuzz &ge;97% · logprob &ge;0.92
                   </span>
                 </div>
-                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-zinc-900">
+                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <span className="font-medium">Audit Ledger</span>
-                  <span className="font-mono text-[11px] text-zinc-700">
+                  <span className="font-mono text-[11px] text-[var(--text-secondary)]">
                     SHA-256 AST Checksums
                   </span>
                 </div>
@@ -314,7 +316,7 @@ export function LandingPage() {
                   data-testid="landing-primary-cta"
                   disabled={isLaunching}
                   onClick={() => void handlePrimaryCta()}
-                  className="w-full py-3.5 px-4 rounded-full bg-[#1D4ED8] hover:bg-[#1E40AF] disabled:opacity-70 text-white text-sm font-semibold shadow-lg flex items-center justify-center gap-2 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+                  className="w-full py-3.5 px-4 rounded-full bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] disabled:opacity-70 text-[var(--accent-brand-contrast)] text-sm font-semibold shadow-lg flex items-center justify-center gap-2 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-2"
                 >
                   <span>
                     {isLaunching
@@ -335,7 +337,7 @@ export function LandingPage() {
                     data-testid="landing-demo-link"
                     disabled={isLaunching}
                     onClick={() => void handleDemoLaunch()}
-                    className="inline-flex items-center justify-center py-1 px-2 text-xs font-semibold text-blue-800 hover:text-blue-950 underline underline-offset-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                    className="inline-flex items-center justify-center py-1 px-2 text-xs font-semibold text-[var(--accent-brand-ink)] hover:opacity-80 underline underline-offset-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
                   >
                     Try Demo Corpus
                   </button>
@@ -346,17 +348,17 @@ export function LandingPage() {
 
           {/* Right Column: High-Contrast Value Proposition */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left min-w-0">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#141D3D] text-[#BFDBFE] border border-[#2B3B73] text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-blue-400" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-hero-card)] text-[#B8DCF2] border border-[#2F4461] text-xs font-mono">
+              <span className="w-2 h-2 rounded-full bg-[#82C4EC]" />
               <span>BERT · DETERMINISTIC EVIDENCE VERIFICATION</span>
             </div>
 
-            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-white">
+            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-[#F4F1EA]">
               Drop files.{" "}
-              <span className="italic font-normal text-[#BFDBFE]">Verify every line.</span>
+              <span className="italic font-normal text-[#A8D4F5]">Verify every line.</span>
             </h1>
 
-            <p className="max-w-2xl text-base sm:text-lg text-[#E4E4E7] leading-relaxed mx-auto lg:mx-0">
+            <p className="max-w-2xl text-base sm:text-lg text-[#E6E2D8] leading-relaxed mx-auto lg:mx-0">
               Every answer is tied to a verbatim source quote (&ge;97% rapidfuzz match) or
               flagged for human review. Missing or low-confidence evidence fails closed to
               human triage.
@@ -364,45 +366,46 @@ export function LandingPage() {
 
             {/* Verifiable Guarantees Strip */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-              <div className="p-3.5 rounded-2xl bg-[#141D3D] border border-[#2B3B73]">
-                <div className="text-[11px] font-mono font-semibold text-[#BFDBFE]">
+              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
+                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
                   QUOTE GATE
                 </div>
-                <p className="text-xs text-white mt-1 leading-snug">
+                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug tabular-nums">
                   &ge;97% rapidfuzz match + &ge;0.92 critical-entity logprob check.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[#141D3D] border border-[#2B3B73]">
-                <div className="text-[11px] font-mono font-semibold text-[#BFDBFE]">
+              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
+                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
                   SHA-256 LEDGER
                 </div>
-                <p className="text-xs text-white mt-1 leading-snug">
+                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
                   Every ingested file is SHA-256 checksummed into an immutable Audit Ledger.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[#141D3D] border border-[#2B3B73]">
-                <div className="text-[11px] font-mono font-semibold text-[#BFDBFE]">
+              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
+                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
                   FAIL-CLOSED TRIAGE
                 </div>
-                <p className="text-xs text-white mt-1 leading-snug">
+                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
                   Unsupported claims route to human triage instead of unverified prose.
                 </p>
               </div>
             </div>
 
             {/* Verbatim Proof Preview Card */}
-            <div className="max-w-xl mx-auto lg:mx-0 p-4 rounded-2xl bg-[#141D3D] border border-[#2B3B73] text-left text-xs space-y-2 shadow-xl">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[#E4E4E7] text-[11px] font-mono">
+            <div className="max-w-xl mx-auto lg:mx-0 p-4 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461] text-left text-xs space-y-2 shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[#E6E2D8] text-[11px] font-mono tabular-nums">
                 <span>SOC2_Type_II_2026.pdf · Page 14</span>
-                <span className="px-2 py-0.5 rounded bg-[#064E3B] text-[#A7F3D0] border border-[#059669]">
-                  99.4% rapidfuzz Match
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0A5740] text-[#E7F6F0] border border-[#1F7A5D] tabular-nums">
+                  <ShieldCheck size={11} aria-hidden="true" />
+                  <span>99.4% rapidfuzz Match</span>
                 </span>
               </div>
-              <p className="text-white font-serif text-sm italic leading-snug">
+              <p className="text-[#F4F1EA] font-serif text-sm italic leading-snug">
                 “Access control requires multifactor authentication for all privileged accounts
                 across production environments.”
               </p>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#CBD5E1] font-mono">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#C8C2B6] font-mono tabular-nums">
                 <span>Ranger Fact Node</span>
                 <span>·</span>
                 <span>bbox [72, 610, 512, 636]</span>
@@ -415,7 +418,7 @@ export function LandingPage() {
       {/* SECTION 2: Interactive Claim -> Source Evidence Demo */}
       <section
         id="evidence-demo"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-white text-zinc-900 border-b border-zinc-200"
+        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
       >
         <div
           className="max-w-5xl mx-auto space-y-8"
@@ -430,15 +433,15 @@ export function LandingPage() {
         >
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div className="space-y-2 max-w-2xl">
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-800">
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
                 INTERACTIVE CLAIM &rarr; SOURCE EVIDENCE DEMO
               </span>
-              <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-zinc-950">
+              <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
                 Inspect how every claim resolves to source proof—or fails closed.
               </h2>
-              <p className="text-sm text-zinc-700 leading-relaxed">
+              <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
                 Step through real BERT verification cases: SOC 2 MFA, AWS IAM{" "}
-                <code className="px-1 py-0.5 rounded bg-zinc-100 text-zinc-900 text-xs">
+                <code className="px-1 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-mono">
                   s3:*
                 </code>{" "}
                 wildcards, Chronos 2026 vs 2023 supersession, and a missing-proof escalation.
@@ -456,7 +459,7 @@ export function LandingPage() {
                       (prev - 1 + CLAIM_EVIDENCE_DEMOS.length) % CLAIM_EVIDENCE_DEMOS.length
                   );
                 }}
-                className="p-2 rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="p-2 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 <ChevronLeft size={16} />
               </button>
@@ -467,7 +470,7 @@ export function LandingPage() {
                   setIsAutoPlaying(false);
                   setActiveDemoIdx((prev) => (prev + 1) % CLAIM_EVIDENCE_DEMOS.length);
                 }}
-                className="p-2 rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="p-2 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 <ChevronRight size={16} />
               </button>
@@ -476,7 +479,7 @@ export function LandingPage() {
                 data-testid="evidence-demo-autoplay-toggle"
                 onClick={() => setIsAutoPlaying((prev) => !prev)}
                 disabled={reducedMotion}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 bg-zinc-50 hover:bg-zinc-100 disabled:opacity-60 text-xs font-semibold text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-sunken)] hover:border-[var(--accent-brand-border)] disabled:opacity-60 text-xs font-semibold text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 {isAutoPlaying && !reducedMotion ? <Pause size={13} /> : <Play size={13} />}
                 <span>
@@ -504,25 +507,25 @@ export function LandingPage() {
                     setIsAutoPlaying(false);
                     setActiveDemoIdx(idx);
                   }}
-                  className={`text-left p-3 rounded-2xl border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                  className={`text-left p-3 rounded-2xl border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                     selected
-                      ? "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-sm"
-                      : "bg-zinc-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100"
+                      ? "bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] border-[var(--accent-brand)] shadow-sm"
+                      : "bg-[var(--bg-sunken)] text-[var(--text-primary)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span
                       className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${
                         selected
-                          ? "bg-[#1E3A8A] text-white"
-                          : "bg-zinc-200 text-zinc-900"
+                          ? "bg-[var(--accent-brand-hover)] text-white"
+                          : "bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                       }`}
                     >
                       {item.sourceFormat}
                     </span>
                     <span
-                      className={`text-[10px] font-mono ${
-                        selected ? "text-blue-100" : "text-zinc-700"
+                      className={`text-[10px] font-mono tabular-nums ${
+                        selected ? "text-white/90" : "text-[var(--text-secondary)]"
                       }`}
                     >
                       0{idx + 1}
@@ -537,14 +540,14 @@ export function LandingPage() {
           {/* Active Demo Inspection Stage */}
           <div
             data-testid="evidence-demo-stage"
-            className="rounded-3xl border border-zinc-200 bg-[#F8FAFC] p-5 sm:p-7 space-y-5 shadow-sm"
+            className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 sm:p-7 space-y-5 shadow-sm"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-zinc-200">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[var(--border-subtle)]">
               <div>
-                <div className="text-[11px] font-mono font-semibold text-zinc-700">
+                <div className="text-[11px] font-mono font-semibold text-[var(--text-secondary)] tabular-nums">
                   {activeDemo.sourceFile} · {activeDemo.locatorLabel}
                 </div>
-                <h3 className="text-lg font-semibold text-zinc-950 mt-0.5">
+                <h3 className="font-serif text-xl font-semibold text-[var(--text-primary)] mt-0.5">
                   {activeDemo.claimTitle}
                 </h3>
               </div>
@@ -553,8 +556,8 @@ export function LandingPage() {
                 data-testid="evidence-demo-status"
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold border ${
                   activeDemo.status === "VERIFIED"
-                    ? "bg-emerald-50 text-emerald-900 border-emerald-300"
-                    : "bg-rose-50 text-rose-900 border-rose-300"
+                    ? "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]"
+                    : "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]"
                 }`}
               >
                 {activeDemo.status === "VERIFIED" ? (
@@ -568,58 +571,58 @@ export function LandingPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
               {/* Step 1: Claim */}
-              <div className="lg:col-span-4 rounded-2xl bg-white border border-zinc-200 p-4 flex flex-col justify-between">
+              <div className="lg:col-span-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-4 flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-800">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
                     1 · Claim / Question
                   </span>
-                  <p className="text-sm font-medium text-zinc-900 mt-2 leading-relaxed">
+                  <p className="text-sm font-medium text-[var(--text-primary)] mt-2 leading-relaxed">
                     {activeDemo.claimText}
                   </p>
                 </div>
-                <div className="mt-4 pt-3 border-t border-zinc-100 text-[11px] font-mono text-zinc-700">
+                <div className="mt-4 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
                   {activeDemo.gateRule}
                 </div>
               </div>
 
               {/* Step 2: Gate & Locator */}
-              <div className="lg:col-span-3 rounded-2xl bg-white border border-zinc-200 p-4 flex flex-col justify-between">
+              <div className="lg:col-span-3 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-4 flex flex-col justify-between">
                 <div className="space-y-3">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-800">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
                     2 · Gate & Locator
                   </span>
-                  <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <div className="text-[10px] font-mono text-zinc-600">MATCH SCORE</div>
-                    <div className="text-xs font-mono font-bold text-zinc-950 mt-0.5">
+                  <div className="p-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)]">
+                    <div className="text-[10px] font-mono text-[var(--text-muted)]">MATCH SCORE</div>
+                    <div className="text-xs font-mono font-bold text-[var(--text-primary)] mt-0.5 tabular-nums">
                       {activeDemo.matchScoreLabel}
                     </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <div className="text-[10px] font-mono text-zinc-600">GATE SIGNAL</div>
-                    <div className="text-xs font-mono font-semibold text-zinc-900 mt-0.5">
+                  <div className="p-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)]">
+                    <div className="text-[10px] font-mono text-[var(--text-muted)]">GATE SIGNAL</div>
+                    <div className="text-xs font-mono font-semibold text-[var(--text-primary)] mt-0.5 tabular-nums">
                       {activeDemo.logprobLabel}
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 pt-3 border-t border-zinc-100 text-[11px] font-mono text-zinc-800 break-all">
+                <div className="mt-4 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] break-all">
                   {activeDemo.locatorLabel}
                 </div>
               </div>
 
               {/* Step 3: Source Snippet */}
-              <div className="lg:col-span-5 rounded-2xl bg-[#0F172A] text-[#F8FAFC] p-4 flex flex-col justify-between border border-slate-800">
+              <div className="lg:col-span-5 rounded-2xl bg-[var(--bg-hero)] text-[#F4F1EA] p-4 flex flex-col justify-between border border-[var(--border-strong)]">
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#93C5FD]">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#A8D4F5]">
                     3 · Source AST Snippet
                   </span>
-                  <p className="mt-2 font-mono text-xs leading-relaxed text-[#F8FAFC]">
+                  <p className="mt-2 font-mono text-xs leading-relaxed text-[#F4F1EA]">
                     <HighlightedExcerpt
                       text={activeDemo.sourceExcerpt}
                       highlight={activeDemo.highlightedSpan}
                     />
                   </p>
                 </div>
-                <p className="mt-4 pt-3 border-t border-slate-700 text-xs text-[#CBD5E1] leading-relaxed">
+                <p className="mt-4 pt-3 border-t border-[#2F4461] text-xs text-[#C8C2B6] leading-relaxed">
                   {activeDemo.explanation}
                 </p>
               </div>
@@ -631,17 +634,17 @@ export function LandingPage() {
       {/* SECTION 3: 7-Agent Pipeline Visual */}
       <section
         id="how-it-works"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[#F7F7F5] text-zinc-900 border-b border-zinc-200"
+        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
       >
         <div className="max-w-6xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-800">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
               7-AGENT REGIMENT PIPELINE
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-zinc-950">
+            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
               Scout through Envoy: seven specialized deterministic stages.
             </h2>
-            <p className="text-sm sm:text-base text-zinc-700 leading-relaxed">
+            <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
               BERT separates OCR rescue, classification, temporal tracking, risk scoring,
               structured fact extraction, conflict resolution, and verified synthesis into
               checkpointed stages you can pause and steer mid-run.
@@ -653,26 +656,28 @@ export function LandingPage() {
               <li
                 key={agent.name}
                 data-testid={`pipeline-agent-${agent.name.toLowerCase()}`}
-                className="rounded-2xl bg-white border border-zinc-200 p-4 flex flex-col justify-between shadow-xs"
+                className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-4 flex flex-col justify-between shadow-xs"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] font-bold text-blue-800">
+                    <span className="font-mono text-[11px] font-bold text-[var(--accent-brand-ink)] tabular-nums">
                       {agent.step}
                     </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-200">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--bg-sunken)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
                       {agent.modelTier === "Vision SLM" ? "Vision" : "Text"}
                     </span>
                   </div>
-                  <h3 className="text-base font-semibold text-zinc-950 mt-2">
+                  <h3 className="font-serif text-lg font-semibold text-[var(--text-primary)] mt-2">
                     {agent.name}
                   </h3>
-                  <div className="text-xs font-medium text-blue-800 mt-0.5">
+                  <div className="text-xs font-medium text-[var(--accent-brand-ink)] mt-0.5">
                     {agent.role}
                   </div>
-                  <p className="text-xs text-zinc-700 mt-2 leading-relaxed">{agent.detail}</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-2 leading-relaxed">
+                    {agent.detail}
+                  </p>
                 </div>
-                <div className="mt-4 pt-2.5 border-t border-zinc-100 text-[10px] font-mono text-zinc-600 flex items-center justify-between">
+                <div className="mt-4 pt-2.5 border-t border-[var(--border-subtle)] text-[10px] font-mono text-[var(--text-muted)] flex items-center justify-between">
                   <span>{idx < 6 ? `Next: ${PIPELINE_AGENTS[idx + 1].name}` : "Terminal Gate"}</span>
                   {idx < 6 && <ArrowRight size={11} />}
                 </div>
@@ -685,17 +690,17 @@ export function LandingPage() {
       {/* SECTION 4: Verification Gate Explained */}
       <section
         id="security-gate"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-white text-zinc-900 border-b border-zinc-200"
+        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-800">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
               VERIFICATION GATE &amp; STATUS SEPARATION
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-zinc-950">
+            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
               Why rapidfuzz &ge;97%, logprob &ge;0.92, and human statuses stay strictly separated.
             </h2>
-            <p className="text-sm sm:text-base text-zinc-700 leading-relaxed">
+            <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
               Passing automated synthesis requires deterministic proof. Any human edits, legal
               counsel escalations, or N/A markings are recorded transparently without inflating
               machine-verified scores.
@@ -706,21 +711,21 @@ export function LandingPage() {
             {VERIFICATION_GATE_PILLARS.map((pillar) => (
               <article
                 key={pillar.id}
-                className="rounded-2xl bg-[#F8FAFC] border border-zinc-200 p-6 flex flex-col justify-between"
+                className="rounded-2xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] p-6 flex flex-col justify-between"
               >
                 <div>
-                  <div className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-blue-800">
+                  <div className="inline-flex items-center gap-1.5 text-[11px] font-mono font-bold text-[var(--accent-brand-ink)]">
                     <Lock size={13} />
                     <span>{pillar.tag}</span>
                   </div>
-                  <h3 className="text-base font-semibold text-zinc-950 mt-2">
+                  <h3 className="font-serif text-lg font-semibold text-[var(--text-primary)] mt-2">
                     {pillar.title}
                   </h3>
-                  <p className="text-xs sm:text-sm text-zinc-700 mt-2 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-2 leading-relaxed">
                     {pillar.summary}
                   </p>
                 </div>
-                <div className="mt-5 pt-3 border-t border-zinc-200 text-[11px] font-mono text-zinc-700">
+                <div className="mt-5 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
                   {pillar.contractNote}
                 </div>
               </article>
@@ -732,17 +737,17 @@ export function LandingPage() {
       {/* SECTION 5: Use Cases (Keyboard-Accessible Accordions) */}
       <section
         id="use-cases"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[#1D4ED8] text-white"
+        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--accent-brand)] text-white"
       >
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
           <div className="lg:col-span-5 space-y-4">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-100">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#D2E8F7]">
               BERT USE CASES
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-white">
               Built for messy compliance corpora across four native formats.
             </h2>
-            <p className="text-sm text-blue-50 leading-relaxed">
+            <p className="text-sm text-[#EBF2F7] leading-relaxed">
               Select any workflow to inspect how BERT parses source geometry, anchors locators,
               and routes edge cases to human reviewers.
             </p>
@@ -750,7 +755,7 @@ export function LandingPage() {
               <button
                 type="button"
                 onClick={() => void handleDemoLaunch()}
-                className="inline-flex items-center gap-2 py-2.5 px-5 rounded-full bg-white text-[#1E3A8A] hover:bg-blue-50 text-xs font-semibold shadow-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="inline-flex items-center gap-2 py-2.5 px-5 rounded-full bg-white text-[#14384F] hover:bg-[#EBF2F7] text-xs font-semibold shadow-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <span>Inspect 4-Doc Demo in Workspace</span>
                 <ArrowRight size={14} />
@@ -765,7 +770,7 @@ export function LandingPage() {
               return (
                 <div
                   key={uc.id}
-                  className="rounded-2xl bg-[#173DB0] border border-blue-400/50 overflow-hidden"
+                  className="rounded-2xl bg-[#123146] border border-white/25 overflow-hidden"
                 >
                   <button
                     type="button"
@@ -773,11 +778,11 @@ export function LandingPage() {
                     aria-expanded={isOpen}
                     aria-controls={panelId}
                     onClick={() => setExpandedUseCase(isOpen ? null : idx)}
-                    className="w-full text-left p-4 sm:p-5 hover:bg-[#1E40AF] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="w-full text-left p-4 sm:p-5 hover:bg-[#173D57] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="px-2 py-0.5 rounded bg-white text-[#1E3A8A] font-mono text-[10px] font-bold shrink-0">
+                        <span className="px-2 py-0.5 rounded bg-white text-[#14384F] font-mono text-[10px] font-bold shrink-0">
                           {uc.formatBadge}
                         </span>
                         <span className="font-semibold text-sm sm:text-base text-white">
@@ -791,7 +796,7 @@ export function LandingPage() {
                         }`}
                       />
                     </div>
-                    <p className="text-xs sm:text-sm text-blue-50 mt-1.5 leading-snug">
+                    <p className="text-xs sm:text-sm text-[#EBF2F7] mt-1.5 leading-snug">
                       {uc.summary}
                     </p>
                   </button>
@@ -800,12 +805,12 @@ export function LandingPage() {
                     <div
                       id={panelId}
                       data-testid={`use-case-panel-${uc.id}`}
-                      className="px-4 pb-4 sm:px-5 sm:pb-5 pt-3 border-t border-blue-300/40 bg-[#133294] space-y-2"
+                      className="px-4 pb-4 sm:px-5 sm:pb-5 pt-3 border-t border-white/20 bg-[#0D2536] space-y-2"
                     >
                       <p className="text-xs sm:text-sm text-white leading-relaxed">
                         {uc.detail}
                       </p>
-                      <div className="text-[11px] font-mono text-blue-100">
+                      <div className="text-[11px] font-mono text-[#CFE6F7]">
                         {uc.locatorExample}
                       </div>
                     </div>
@@ -820,17 +825,17 @@ export function LandingPage() {
       {/* SECTION 6: Security & Local Mode */}
       <section
         id="local-mode"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[#F7F7F5] text-zinc-900 border-b border-zinc-200"
+        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-800">
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
               SECURITY &amp; LOCAL-FIRST ARCHITECTURE
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-zinc-950">
+            <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
               Local SQLite, deterministic offline fallback, and cryptographic auditability.
             </h2>
-            <p className="text-sm sm:text-base text-zinc-700 leading-relaxed">
+            <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
               Run BERT directly on your workstation or air-gapped node with SQLite async storage,
               local vLLM endpoints, or the built-in deterministic simulator—with no mandatory
               external cloud upload.
@@ -843,21 +848,23 @@ export function LandingPage() {
               return (
                 <article
                   key={item.id}
-                  className="rounded-2xl bg-white border border-zinc-200 p-6 flex flex-col justify-between shadow-xs"
+                  className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 flex flex-col justify-between shadow-xs"
                 >
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-3">
-                      <span className="font-mono text-[11px] font-bold text-blue-800">
+                      <span className="font-mono text-[11px] font-bold text-[var(--accent-brand-ink)]">
                         {item.tag}
                       </span>
-                      <Icon size={16} className="text-blue-800" />
+                      <Icon size={16} className="text-[var(--accent-brand-ink)]" />
                     </div>
-                    <h3 className="text-base font-semibold text-zinc-950">{item.title}</h3>
-                    <p className="text-xs sm:text-sm text-zinc-700 mt-2 leading-relaxed">
+                    <h3 className="font-serif text-lg font-semibold text-[var(--text-primary)]">
+                      {item.title}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-2 leading-relaxed">
                       {item.detail}
                     </p>
                   </div>
-                  <div className="mt-5 pt-3 border-t border-zinc-200 text-[11px] font-mono text-zinc-700">
+                  <div className="mt-5 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
                     {item.artifactNote}
                   </div>
                 </article>
@@ -868,33 +875,33 @@ export function LandingPage() {
       </section>
 
       {/* SECTION 7: Footer */}
-      <footer className="py-10 px-4 sm:px-8 md:px-10 lg:px-14 bg-white text-zinc-800 border-t border-zinc-200">
+      <footer className="py-10 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-secondary)] border-t border-[var(--border-subtle)]">
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
           <div className="md:col-span-5 space-y-2">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-              <span className="font-mono text-xs font-bold text-zinc-950">
+              <ShieldCheck size={14} className="text-[var(--status-verified-ink)] shrink-0" />
+              <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
                 BERT · Evidence-Verified Document Intelligence
               </span>
             </div>
-            <p className="text-xs text-zinc-700 leading-relaxed max-w-sm">
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-sm">
               Inspired by Marshal Louis-Alexandre Berthier. Every answer is backed by verbatim
               source quotes (&ge;97% rapidfuzz match) or escalated to human triage.
             </p>
-            <div className="text-[11px] font-mono text-zinc-600">
+            <div className="text-[11px] font-mono text-[var(--text-muted)]">
               SQLite Async · Local vLLM / Offline Fallback · SHA-256 Audit Ledger
             </div>
           </div>
 
           <div className="md:col-span-4 space-y-2">
-            <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-700">
+            <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
               Page Sections
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
               <button
                 type="button"
                 onClick={() => scrollToSection("hero")}
-                className="text-zinc-800 hover:text-blue-800 underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 Overview
               </button>
@@ -903,7 +910,7 @@ export function LandingPage() {
                   key={navItem.id}
                   type="button"
                   onClick={() => scrollToSection(navItem.id)}
-                  className="text-zinc-800 hover:text-blue-800 underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                  className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
                 >
                   {navItem.label}
                 </button>
@@ -912,31 +919,31 @@ export function LandingPage() {
           </div>
 
           <div className="md:col-span-3 space-y-2">
-            <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-700">
+            <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
               Application Routes
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
               <Link
                 to="/workspace"
-                className="text-blue-800 hover:text-blue-950 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 Workspace
               </Link>
               <Link
                 to="/triage"
-                className="text-blue-800 hover:text-blue-950 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 Triage Queue
               </Link>
               <Link
                 to="/results"
-                className="text-blue-800 hover:text-blue-950 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 Results Report
               </Link>
               <Link
                 to="/results?tab=audit"
-                className="inline-flex items-center gap-1 text-blue-800 hover:text-blue-950 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="inline-flex items-center gap-1 text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
               >
                 <ShieldCheck size={12} />
                 <span>Audit Ledger</span>

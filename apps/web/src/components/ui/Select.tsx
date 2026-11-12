@@ -42,7 +42,7 @@ export function Select<T extends string = string>({
   disabled = false,
   size = "md",
   className = "",
-  labelClassName = "text-[11px] font-semibold text-zinc-700 uppercase tracking-wider block",
+  labelClassName = "text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider block",
   testId,
 }: SelectProps<T>) {
   const autoId = useId();
@@ -154,17 +154,17 @@ export function Select<T extends string = string>({
           setIsOpen((prev) => !prev);
         }}
         onKeyDown={handleKeyDown}
-        className={`w-full flex items-center justify-between gap-2 rounded-lg bg-white border border-zinc-300 hover:border-zinc-400 font-medium text-zinc-900 shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${triggerSizeClasses} ${
-          disabled ? "opacity-60 cursor-not-allowed bg-zinc-100" : "cursor-pointer"
-        } ${isOpen ? "border-blue-600 ring-2 ring-blue-600/20" : ""}`}
+        className={`w-full flex items-center justify-between gap-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] hover:border-[var(--accent-brand-border)] font-medium text-[var(--text-primary)] shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 ${triggerSizeClasses} ${
+          disabled ? "opacity-60 cursor-not-allowed bg-[var(--bg-sunken)]" : "cursor-pointer"
+        } ${isOpen ? "border-[var(--accent-brand-ring)] ring-2 ring-[var(--accent-brand-soft)]" : ""}`}
       >
         <span className="truncate text-left">
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown
           size={size === "sm" ? 12 : 14}
-          className={`shrink-0 text-zinc-600 transition-transform duration-150 ${
-            isOpen ? "rotate-180 text-blue-700" : ""
+          className={`shrink-0 text-[var(--text-secondary)] transition-transform duration-150 ${
+            isOpen ? "rotate-180 text-[var(--accent-brand-ink)]" : ""
           }`}
         />
       </button>
@@ -176,10 +176,10 @@ export function Select<T extends string = string>({
           role="listbox"
           aria-labelledby={label ? labelId : undefined}
           aria-label={!label ? ariaLabel : undefined}
-          className="absolute left-0 right-0 mt-1 z-40 max-h-60 overflow-y-auto rounded-xl bg-white border border-zinc-200 shadow-lg py-1 text-xs"
+          className="absolute left-0 right-0 mt-1 z-40 max-h-60 overflow-y-auto rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-lg py-1 text-xs"
         >
           {options.length === 0 ? (
-            <li className="px-3 py-2 text-zinc-500 italic">No options available</li>
+            <li className="px-3 py-2 text-[var(--text-muted)] italic">No options available</li>
           ) : (
             options.map((opt, idx) => {
               const isSelected = opt.value === value;
@@ -200,29 +200,29 @@ export function Select<T extends string = string>({
                   onClick={() => commitIndex(idx)}
                   className={`flex items-center justify-between gap-2 px-3 py-2 transition-colors ${
                     opt.disabled
-                      ? "text-zinc-400 cursor-not-allowed"
+                      ? "text-[var(--text-muted)] opacity-70 cursor-not-allowed"
                       : isActive
-                        ? "bg-blue-50 text-blue-950 cursor-pointer"
+                        ? "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] cursor-pointer"
                         : isSelected
-                          ? "bg-zinc-50 text-zinc-950 cursor-pointer"
-                          : "text-zinc-800 hover:bg-zinc-50 cursor-pointer"
+                          ? "bg-[var(--bg-sunken)] text-[var(--text-primary)] cursor-pointer"
+                          : "text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] cursor-pointer"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div
                       className={`truncate ${
-                        isSelected ? "font-semibold text-blue-800" : "font-medium"
+                        isSelected ? "font-semibold text-[var(--accent-brand-ink)]" : "font-medium"
                       }`}
                     >
                       {opt.label}
                     </div>
                     {opt.description && (
-                      <div className="text-[10px] text-zinc-600 truncate">
+                      <div className="text-[10px] text-[var(--text-muted)] truncate">
                         {opt.description}
                       </div>
                     )}
                   </div>
-                  {isSelected && <Check size={13} className="shrink-0 text-blue-700" />}
+                  {isSelected && <Check size={13} className="shrink-0 text-[var(--accent-brand-ink)]" />}
                 </li>
               );
             })

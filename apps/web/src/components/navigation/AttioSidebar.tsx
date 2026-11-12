@@ -2,13 +2,18 @@ import {
   AlertTriangle,
   BarChart3,
   Bot,
+  CheckCircle2,
+  Clock,
   Download,
   FileCode2,
   FileSpreadsheet,
   FileText,
   Layers,
+  MinusCircle,
+  PencilLine,
   Plus,
   RefreshCw,
+  Scale,
   Scan,
   ShieldAlert,
   ShieldCheck,
@@ -20,6 +25,7 @@ import { inferSourceChip } from "../../lib/evidenceLocators";
 import { computeWorkItemMetrics, itemMatchesDocumentFilter } from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
 import type { Document } from "../../types/bert";
+import { ThemeToggle } from "../ui/ThemeToggle";
 
 interface AttioSidebarProps {
   onNavigate?: () => void;
@@ -76,27 +82,55 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
   const getFormatBadge = (doc: Document) => {
     const chip = inferSourceChip(doc, null);
     if (chip === "SCAN") {
-      return { label: "SCN", icon: Scan, bg: "bg-rose-100 text-rose-800 border-rose-200" };
+      return {
+        label: "SCN",
+        icon: Scan,
+        bg: "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]",
+      };
     }
     if (chip === "XLSX") {
-      return { label: "XLS", icon: FileSpreadsheet, bg: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+      return {
+        label: "XLS",
+        icon: FileSpreadsheet,
+        bg: "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]",
+      };
     }
     if (chip === "JSON") {
-      return { label: "JSN", icon: FileCode2, bg: "bg-amber-100 text-amber-900 border-amber-200" };
+      return {
+        label: "JSN",
+        icon: FileCode2,
+        bg: "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]",
+      };
     }
     if (chip === "TXT") {
-      return { label: "TXT", icon: FileText, bg: "bg-zinc-200 text-zinc-800 border-zinc-300" };
+      return {
+        label: "TXT",
+        icon: FileText,
+        bg: "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]",
+      };
     }
-    return { label: "PDF", icon: FileText, bg: "bg-blue-100 text-blue-800 border-blue-200" };
+    return {
+      label: "PDF",
+      icon: FileText,
+      bg: "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border-[var(--accent-brand-border)]",
+    };
   };
 
-  const getDocStatus = (doc: Document): { label: string; style: string } => {
+  const getDocStatus = (doc: Document): { label: string; style: string; icon: typeof CheckCircle2 } => {
     if (activeJob?.status === "RUNNING" && activeJob.current_document_id === doc.id) {
-      return { label: "processing", style: "bg-blue-100 text-blue-800 border-blue-200" };
+      return {
+        label: "processing",
+        style: "bg-[var(--accent-brand-soft)] text-[var(--accent-brand-ink)] border-[var(--accent-brand-border)]",
+        icon: Clock,
+      };
     }
     const docItems = workItems.filter((w) => itemMatchesDocumentFilter(w, doc.id));
     if (docItems.some((w) => w.verification_status === "ESCALATED_LEGAL")) {
-      return { label: "legal", style: "bg-amber-100 text-amber-950 border-amber-300" };
+      return {
+        label: "legal",
+        style: "bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border-[var(--status-warning-border)]",
+        icon: Scale,
+      };
     }
     if (
       docItems.some(
@@ -106,24 +140,44 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
       ) ||
       doc.processing_status === "FAILED"
     ) {
-      return { label: "needs input", style: "bg-rose-100 text-rose-900 border-rose-200" };
+      return {
+        label: "needs input",
+        style: "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border-[var(--status-danger-border)]",
+        icon: AlertTriangle,
+      };
     }
     if (docItems.some((w) => w.verification_status === "HUMAN_OVERRIDE")) {
-      return { label: "override", style: "bg-purple-100 text-purple-950 border-purple-300" };
+      return {
+        label: "override",
+        style: "bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border-[var(--status-override-border)]",
+        icon: PencilLine,
+      };
     }
     if (
       docItems.length > 0 &&
       docItems.every((w) => w.verification_status === "NOT_APPLICABLE")
     ) {
-      return { label: "n/a", style: "bg-slate-100 text-slate-900 border-slate-300" };
+      return {
+        label: "n/a",
+        style: "bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border-[var(--status-neutral-border)]",
+        icon: MinusCircle,
+      };
     }
     if (
       doc.processing_status === "VERIFIED" ||
       (docItems.length > 0 && docItems.every((w) => w.verification_status === "VERIFIED"))
     ) {
-      return { label: "verified", style: "bg-emerald-100 text-emerald-900 border-emerald-200" };
+      return {
+        label: "verified",
+        style: "bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border-[var(--status-verified-border)]",
+        icon: CheckCircle2,
+      };
     }
-    return { label: "ingested", style: "bg-zinc-100 text-zinc-700 border-zinc-200" };
+    return {
+      label: "ingested",
+      style: "bg-[var(--bg-sunken)] text-[var(--text-secondary)] border-[var(--border-subtle)]",
+      icon: FileText,
+    };
   };
 
   const buildWorkspaceNavUrl = (mode?: "canvas") => {
@@ -141,17 +195,19 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
   };
 
   return (
-    <aside className="w-56 lg:w-60 h-screen bg-[#FFFFFF] border-r border-zinc-200/80 flex flex-col justify-between shrink-0 text-zinc-900">
+    <aside className="w-56 lg:w-60 h-screen bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] flex flex-col justify-between shrink-0 text-[var(--text-primary)]">
       {/* Top Workspace Header */}
       <div className="min-h-0 grow shrink basis-0 flex flex-col">
-        <div className="h-14 px-4 flex items-center justify-between border-b border-zinc-200/70 shrink-0">
+        <div className="h-14 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#18181B] text-white font-serif text-sm font-bold flex items-center justify-center shrink-0 shadow-xs">
+            <div className="w-7 h-7 rounded-lg bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] font-serif text-sm font-bold flex items-center justify-center shrink-0 shadow-xs">
               B
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold truncate text-zinc-900">BERT Compliance</div>
-              <span className="text-[10px] text-zinc-600 font-mono block truncate">
+              <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
+                BERT Compliance
+              </div>
+              <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
                 7-Agent Regiment
               </span>
             </div>
@@ -159,21 +215,21 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
         </div>
 
         {/* Primary Action Buttons */}
-        <div className="p-3 space-y-1.5 border-b border-zinc-200/60 shrink-0">
+        <div className="p-3 space-y-1.5 border-b border-[var(--border-subtle)] shrink-0">
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
             accept=".pdf,.xlsx,.xls,.csv,.json,.txt,.md"
             aria-label="Upload document or spreadsheet"
-            className="hidden focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="hidden focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-zinc-300 hover:border-zinc-400 bg-white hover:bg-zinc-50 text-xs font-medium text-zinc-800 shadow-2xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-[var(--border-strong)] hover:border-[var(--accent-brand-border)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-xs font-medium text-[var(--text-primary)] shadow-2xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
-            <Plus size={14} className="text-zinc-700" />
+            <Plus size={14} className="text-[var(--text-secondary)]" />
             <span>Upload Document or Sheet</span>
           </button>
 
@@ -184,9 +240,9 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
               navigate(`/workspace?workspace=${encodeURIComponent(workspaceId || "default")}`);
               onNavigate?.();
             }}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-[var(--accent-brand-soft)] hover:opacity-90 border border-[var(--accent-brand-border)] text-[var(--accent-brand-ink)] text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
-            <Sparkles size={13} className="text-blue-700" />
+            <Sparkles size={13} className="text-[var(--accent-brand-ink)]" />
             <span>Load Investor Demo Case</span>
           </button>
         </div>
@@ -197,29 +253,29 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
             to={buildWorkspaceNavUrl()}
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isActive && location.pathname === "/workspace" && !isCanvasMode
-                  ? "bg-zinc-100 text-zinc-950 font-semibold"
-                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+                  ? "bg-[var(--bg-sunken)] text-[var(--text-primary)] font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
               }`
             }
           >
-            <Bot size={16} className="text-zinc-600" />
-            <span>Home & Copilot</span>
+            <Bot size={16} className="text-[var(--text-secondary)]" />
+            <span>Home &amp; Copilot</span>
           </NavLink>
 
           <NavLink
             to={buildWorkspaceNavUrl("canvas")}
             onClick={() => onNavigate?.()}
             className={() =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 location.pathname === "/workspace" && isCanvasMode
-                  ? "bg-zinc-100 text-zinc-950 font-semibold"
-                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+                  ? "bg-[var(--bg-sunken)] text-[var(--text-primary)] font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
               }`
             }
           >
-            <Layers size={16} className="text-zinc-600" />
+            <Layers size={16} className="text-[var(--text-secondary)]" />
             <span>Document Canvas</span>
           </NavLink>
 
@@ -227,15 +283,15 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
             to="/results"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isActive && !isAuditTab
-                  ? "bg-zinc-100 text-zinc-950 font-semibold"
-                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+                  ? "bg-[var(--bg-sunken)] text-[var(--text-primary)] font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
               }`
             }
           >
-            <BarChart3 size={16} className="text-zinc-600" />
-            <span>Results & Reports</span>
+            <BarChart3 size={16} className="text-[var(--text-secondary)]" />
+            <span>Results &amp; Reports</span>
           </NavLink>
 
           <NavLink
@@ -243,21 +299,21 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
             data-testid="sidebar-triage-link"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `flex items-center justify-between px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              `flex items-center justify-between px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isActive || location.pathname === "/triage"
-                  ? "bg-rose-50 text-rose-950 font-semibold"
-                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+                  ? "bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] font-semibold border border-[var(--status-danger-border)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
               }`
             }
           >
             <div className="flex items-center gap-2.5">
-              <ShieldAlert size={16} className="text-rose-700" />
+              <ShieldAlert size={16} className="text-[var(--status-danger-ink)]" />
               <span>Human Escalations</span>
             </div>
             {metrics.needsTriage > 0 && (
               <span
                 data-testid="sidebar-triage-badge"
-                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200"
+                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border border-[var(--status-danger-border)] tabular-nums"
               >
                 {metrics.needsTriage}
               </span>
@@ -268,23 +324,23 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
             to="/results?tab=audit"
             onClick={() => onNavigate?.()}
             className={() =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isAuditTab
-                  ? "bg-zinc-100 text-zinc-950 font-semibold"
-                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+                  ? "bg-[var(--bg-sunken)] text-[var(--text-primary)] font-semibold border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
               }`
             }
           >
-            <ShieldCheck size={16} className="text-emerald-700" />
+            <ShieldCheck size={16} className="text-[var(--status-verified-ink)]" />
             <span>SHA-256 Audit Ledger</span>
           </NavLink>
         </nav>
 
         {/* Active Corpus Section */}
         <div className="px-3 pt-2 grow shrink basis-0 min-h-0 flex flex-col">
-          <div className="px-2 py-1 flex items-center justify-between text-[11px] font-semibold text-zinc-600 uppercase tracking-wider shrink-0">
+          <div className="px-2 py-1 flex items-center justify-between text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider shrink-0">
             <span>Active Corpus</span>
-            <span className="font-mono text-[10px] text-zinc-600">
+            <span className="font-mono text-[10px] text-[var(--text-muted)] tabular-nums">
               {corpusStatus === "loading" && documents.length === 0
                 ? "Syncing…"
                 : `${documents.length} ${documents.length === 1 ? "file" : "files"}`}
@@ -294,16 +350,16 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
           {corpusStatus === "error" && (
             <div
               data-testid="corpus-error-banner"
-              className="mt-1 mb-1.5 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-[11px] flex items-center justify-between gap-2 shrink-0"
+              className="mt-1 mb-1.5 p-2 rounded-lg bg-[var(--status-danger-soft)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] text-[11px] flex items-center justify-between gap-2 shrink-0"
             >
               <span className="flex items-center gap-1 min-w-0 truncate" title={corpusError ?? "Sync failed"}>
-                <AlertTriangle size={12} className="shrink-0 text-rose-700" />
+                <AlertTriangle size={12} className="shrink-0 text-[var(--status-danger-ink)]" />
                 <span className="truncate">{corpusError || "Corpus sync error"}</span>
               </span>
               <button
                 type="button"
                 onClick={() => void retryCorpusRefresh()}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-rose-300 text-rose-900 font-semibold text-[10px] shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--status-danger-border)] text-[var(--status-danger-ink)] font-semibold text-[10px] shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
               >
                 <RefreshCw size={10} />
                 <span>Retry</span>
@@ -317,12 +373,12 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
                 {[1, 2, 3].map((idx) => (
                   <div
                     key={idx}
-                    className="h-11 rounded-lg bg-zinc-100 animate-pulse border border-zinc-200/70"
+                    className="h-11 rounded-lg bg-[var(--bg-sunken)] animate-pulse border border-[var(--border-subtle)]"
                   />
                 ))}
               </div>
             ) : documents.length === 0 ? (
-              <div className="px-2 py-3 text-center text-xs text-zinc-600">
+              <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
                 No files staged yet. Click upload or demo above.
               </div>
             ) : (
@@ -331,6 +387,7 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
                 const statusBadge = getDocStatus(doc);
                 const isSelected = doc.id === selectedFileFilterId;
                 const FormatIcon = badge.icon;
+                const StatusIcon = statusBadge.icon;
 
                 return (
                   <button
@@ -351,10 +408,10 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
                       }
                       onNavigate?.();
                     }}
-                    className={`w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                    className={`w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                       isSelected
-                        ? "bg-blue-50 text-zinc-950 font-medium border border-blue-300"
-                        : "text-zinc-800 hover:bg-zinc-50 border border-transparent"
+                        ? "bg-[var(--accent-brand-soft)] text-[var(--text-primary)] font-medium border border-[var(--accent-brand-border)]"
+                        : "text-[var(--text-primary)] hover:bg-[var(--bg-sunken)] border border-transparent"
                     }`}
                   >
                     <span
@@ -366,16 +423,19 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
 
                     <div className="grow shrink basis-0 min-w-0 space-y-1">
                       <span
-                        className="block text-xs leading-tight break-words line-clamp-2 text-zinc-900"
+                        className="block text-xs leading-tight break-words line-clamp-2 text-[var(--text-primary)]"
                         title={doc.filename}
                       >
                         {doc.filename}
                       </span>
                       <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
-                        <span className={`px-1.5 py-0 rounded border font-semibold ${statusBadge.style}`}>
-                          {statusBadge.label}
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0 rounded border font-semibold ${statusBadge.style}`}
+                        >
+                          <StatusIcon size={9} aria-hidden="true" />
+                          <span>{statusBadge.label}</span>
                         </span>
-                        <span className="text-zinc-600 shrink-0">
+                        <span className="text-[var(--text-muted)] shrink-0 tabular-nums">
                           {doc.total_ast_nodes} nodes
                         </span>
                       </div>
@@ -388,23 +448,26 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
         </div>
       </div>
 
-      {/* Bottom Live Status Footer */}
-      <div className="p-3 border-t border-zinc-200/80 bg-zinc-50/70 shrink-0">
-        <div className="mb-2 p-2 rounded-lg bg-white border border-zinc-200/80 shadow-2xs">
-          <div className="flex items-center justify-between text-[11px] mb-1 font-medium text-zinc-700">
+      {/* Bottom Live Status & Theme Footer */}
+      <div className="p-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] shrink-0 space-y-2">
+        <div className="p-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-2xs">
+          <div className="flex items-center justify-between text-[11px] mb-1 font-medium text-[var(--text-secondary)]">
             <span>Review Progress</span>
-            <span className="font-mono text-zinc-900 font-bold">
+            <span className="font-mono text-[var(--text-primary)] font-bold tabular-nums">
               {metrics.machineVerified}/{metrics.total} Verified
             </span>
           </div>
-          <div className="w-full h-1.5 bg-zinc-200 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-[var(--bg-sunken)] rounded-full overflow-hidden">
             <div
-              className="h-full bg-emerald-600 rounded-full transition-all duration-500"
+              className="h-full bg-[var(--status-verified-solid)] rounded-full transition-all duration-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          {(metrics.humanOverride > 0 || metrics.escalatedLegal > 0 || metrics.notApplicable > 0 || metrics.unresolved > 0) && (
-            <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-mono text-zinc-700">
+          {(metrics.humanOverride > 0 ||
+            metrics.escalatedLegal > 0 ||
+            metrics.notApplicable > 0 ||
+            metrics.unresolved > 0) && (
+            <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-mono text-[var(--text-muted)] tabular-nums">
               {metrics.humanOverride > 0 && <span>{metrics.humanOverride} override</span>}
               {metrics.escalatedLegal > 0 && <span>· {metrics.escalatedLegal} legal</span>}
               {metrics.notApplicable > 0 && <span>· {metrics.notApplicable} n/a</span>}
@@ -413,6 +476,8 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
           )}
         </div>
 
+        <ThemeToggle variant="sidebar" testId="sidebar-theme-toggle" />
+
         <button
           type="button"
           data-testid="sidebar-export-xlsx-btn"
@@ -420,17 +485,17 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
           title={exportBlockedReason}
           aria-label={exportBlockedReason}
           onClick={exportXlsx}
-          className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 ${
+          className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] focus-visible:ring-offset-1 ${
             canExport
-              ? "bg-[#1D4ED8] hover:bg-[#1E40AF] text-white cursor-pointer"
-              : "bg-zinc-200 text-zinc-600 cursor-not-allowed"
+              ? "bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] cursor-pointer"
+              : "bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-muted)] cursor-not-allowed"
           }`}
         >
           <Download size={13} />
           <span>Export Completed .XLSX</span>
         </button>
         {!canExport && (
-          <p className="mt-1 text-[10px] text-zinc-600 text-center leading-tight">
+          <p className="text-[10px] text-[var(--text-muted)] text-center leading-tight">
             {exportBlockedReason}
           </p>
         )}
