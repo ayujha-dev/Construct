@@ -1222,7 +1222,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         isSimulating: stillRunning,
         hasCompletedRun: job.status === "COMPLETED",
         backendAvailable: true,
-        notice: "Investor demo case loaded · 7-Agent regiment reviewing corpus.",
+        notice: "Investor demo case loaded · 7-Agent review pipeline reviewing corpus.",
       });
       await get().refresh();
       started = true;

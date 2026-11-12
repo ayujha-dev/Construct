@@ -1,4 +1,4 @@
-"""Typed SQLAlchemy models and domain enums for the BERT data contract."""
+"""Typed SQLAlchemy models and domain enums for the ShieldStaff data contract."""
 
 from __future__ import annotations
 

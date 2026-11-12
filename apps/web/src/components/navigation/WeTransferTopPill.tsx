@@ -47,13 +47,13 @@ export function WeTransferTopPill() {
           type="button"
           onClick={() => handleAnchor("hero")}
           className="inline-flex items-center gap-2 rounded-lg px-1 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] cursor-pointer"
-          aria-label="BERT Overview"
+          aria-label="ShieldStaff Overview"
         >
           <span className="w-8 h-8 rounded-xl bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] font-serif text-base font-bold flex items-center justify-center shrink-0">
-            B
+            S
           </span>
           <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-            BERT Enterprise
+            ShieldStaff Enterprise
           </span>
         </button>
 
@@ -172,7 +172,7 @@ export function WeTransferTopPill() {
           className="pointer-events-auto flex items-center gap-2 rounded-full bg-[var(--bg-surface)] shadow-sm border border-[var(--border-subtle)] px-3 py-1.5 text-xs text-[var(--text-primary)] font-medium shrink-0"
         >
           <span className={`w-2 h-2 rounded-full shrink-0 ${dotTone}`} aria-hidden="true" />
-          <span className="font-semibold text-[var(--text-primary)]">BERT Enterprise</span>
+          <span className="font-semibold text-[var(--text-primary)]">ShieldStaff Enterprise</span>
           <span className="hidden xl:inline text-[var(--text-muted)] font-normal">·</span>
           <span className="hidden xl:inline text-[var(--text-secondary)] text-[11px]">
             {statusLabel}

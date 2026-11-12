@@ -201,14 +201,14 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
         <div className="h-14 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-7 h-7 rounded-lg bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] font-serif text-sm font-bold flex items-center justify-center shrink-0 shadow-xs">
-              B
+              S
             </div>
             <div className="min-w-0">
               <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
-                BERT Compliance
+                ShieldStaff
               </div>
               <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
-                7-Agent Regiment
+                7-Agent Pipeline
               </span>
             </div>
           </div>

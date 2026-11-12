@@ -28,6 +28,7 @@ const path = require("node:path") as {
 const nodeProcess = (globalThis as unknown as { process: { cwd: () => string } }).process;
 
 import {
+  LEGACY_THEME_STORAGE_KEY,
   THEME_CONTRAST_AUDIT_PAIRS,
   THEME_STORAGE_KEY,
   THEME_TOKENS,
@@ -282,11 +283,18 @@ function testThemePersistenceAndHookHelpers(): void {
       },
     };
 
-    assertEqual(THEME_STORAGE_KEY, "bert-theme", "THEME_STORAGE_KEY is 'bert-theme'");
+    assertEqual(THEME_STORAGE_KEY, "shieldstaff-theme", "THEME_STORAGE_KEY is 'shieldstaff-theme'");
+    assertEqual(LEGACY_THEME_STORAGE_KEY, "bert-theme", "LEGACY_THEME_STORAGE_KEY is 'bert-theme'");
     assertEqual(getInitialTheme(), "light", "Empty storage defaults strictly to 'light'");
 
-    store.set(THEME_STORAGE_KEY, "dark");
-    assertEqual(getInitialTheme(), "dark", "Stored 'dark' resolves to 'dark'");
+    store.set(LEGACY_THEME_STORAGE_KEY, "dark");
+    assertEqual(getInitialTheme(), "dark", "Stored legacy 'dark' resolves to 'dark'");
+
+    store.set(THEME_STORAGE_KEY, "light");
+    assertEqual(getInitialTheme(), "light", "Primary 'shieldstaff-theme' takes precedence over legacy");
+
+    store.delete(THEME_STORAGE_KEY);
+    store.delete(LEGACY_THEME_STORAGE_KEY);
 
     store.set(THEME_STORAGE_KEY, "invalid-value");
     assertEqual(getInitialTheme(), "light", "Unknown stored theme falls back cleanly to 'light'");

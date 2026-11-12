@@ -17,7 +17,7 @@ import path from "node:path";
 import { HeadlessBrowser, sleep } from "./e2e/lib/cdp.js";
 import { assert, assertEqual, assertIncludes } from "./e2e/lib/assert.js";
 
-const WEB_URL = process.env.BERT_WEB_URL || "http://localhost:5173";
+const WEB_URL = process.env.SHIELDSTAFF_WEB_URL || process.env.BERT_WEB_URL || "http://localhost:5173";
 
 async function setFilesOnInput(page, selector, filePaths) {
   const { root } = await page.send("DOM.getDocument", { depth: -1 });

@@ -85,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span>Corpus &amp; Menu</span>
               </button>
               <span className="text-xs font-semibold text-[var(--text-primary)]">
-                BERT Enterprise
+                ShieldStaff Enterprise
               </span>
               <ThemeToggle variant="compact" testId="mobile-shell-theme-toggle" />
             </div>

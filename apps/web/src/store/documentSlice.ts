@@ -14,6 +14,37 @@ import type { BertState } from "./useBertStore";
 
 export type CorpusStatus = "idle" | "loading" | "ready" | "error";
 
+export const SHIELDSTAFF_WORKSPACE_STORAGE_KEY = "shieldstaff-workspace";
+export const LEGACY_WORKSPACE_STORAGE_KEY = "bert-workspace";
+
+export function getInitialWorkspace(): string | null {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  try {
+    return (
+      window.localStorage.getItem(SHIELDSTAFF_WORKSPACE_STORAGE_KEY) ||
+      window.localStorage.getItem(LEGACY_WORKSPACE_STORAGE_KEY) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function persistWorkspace(workspaceId: string | null): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    if (workspaceId) {
+      window.localStorage.setItem(SHIELDSTAFF_WORKSPACE_STORAGE_KEY, workspaceId);
+      window.localStorage.setItem(LEGACY_WORKSPACE_STORAGE_KEY, workspaceId);
+    } else {
+      window.localStorage.removeItem(SHIELDSTAFF_WORKSPACE_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_WORKSPACE_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors in restricted environments
+  }
+}
+
 export interface DocumentSlice {
   documents: Document[];
   selectedDocumentId: string | null;
@@ -37,7 +68,7 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
   documents: [],
   selectedDocumentId: null,
   selectedFileFilterId: null,
-  workspaceId: null,
+  workspaceId: getInitialWorkspace(),
   corpusStatus: "idle",
   corpusError: null,
   nodesByDocument: {},
@@ -98,7 +129,10 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
     }
   },
 
-  setWorkspaceId: (workspaceId) => set({ workspaceId }),
+  setWorkspaceId: (workspaceId) => {
+    persistWorkspace(workspaceId);
+    set({ workspaceId });
+  },
 
   setDocuments: (documents) => {
     set({ documents });

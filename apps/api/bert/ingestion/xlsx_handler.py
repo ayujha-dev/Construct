@@ -131,6 +131,8 @@ class XLSXHandler:
         write_escalation = include_escalation_columns if include_escalation_columns is not None else (output is not None)
         workbook = load_workbook(str(file_path))
         try:
+            workbook.properties.title = "ShieldStaff Completed Questionnaire"
+            workbook.properties.creator = "ShieldStaff"
             sheet = workbook[sheet_name] if sheet_name else workbook.active
             output_index = sheet.max_column + 1
             status_index = output_index + 1

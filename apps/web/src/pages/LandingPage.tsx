@@ -21,6 +21,17 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Particles } from "../components/ui/Particles";
+import { ENABLE_INTERACTIVE_HOME } from "../config/features";
+import { CommandPaletteModal } from "../features/home/CommandPaletteModal";
+import { HomeBackdrop } from "../features/home/background/HomeBackdrop";
+import { EvidenceDemoSection } from "../features/home/sections/EvidenceDemoSection";
+import { HeroEvidenceSection } from "../features/home/sections/HeroEvidenceSection";
+import { PipelineExplorerSection } from "../features/home/sections/PipelineExplorerSection";
+import { RiskTierExplorerSection } from "../features/home/sections/RiskTierExplorerSection";
+import { StoryNavBar } from "../features/home/sections/StoryNavBar";
+import { TriagePreviewSection } from "../features/home/sections/TriagePreviewSection";
+import { UseCasesTabsSection } from "../features/home/sections/UseCasesTabsSection";
+import { VerificationGatePlayground } from "../features/home/sections/VerificationGatePlayground";
 import {
   CLAIM_EVIDENCE_DEMOS,
   LANDING_NAV_ITEMS,
@@ -56,6 +67,175 @@ function HighlightedExcerpt({ text, highlight }: { text: string; highlight: stri
 }
 
 export function LandingPage() {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    if (!ENABLE_INTERACTIVE_HOME || typeof window === "undefined") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  if (ENABLE_INTERACTIVE_HOME) {
+    return (
+      <div className="relative w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+        <HomeBackdrop />
+        <HeroEvidenceSection onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
+        <StoryNavBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
+        <EvidenceDemoSection />
+        <PipelineExplorerSection />
+        <VerificationGatePlayground />
+        <RiskTierExplorerSection />
+        <TriagePreviewSection />
+        <UseCasesTabsSection />
+
+        {/* SECTION: Security & Local Mode */}
+        <section
+          id="local-mode"
+          className="relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/75"
+        >
+          <div className="max-w-5xl mx-auto space-y-10">
+            <div className="max-w-3xl space-y-3">
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
+                SECURITY &amp; LOCAL-FIRST ARCHITECTURE
+              </span>
+              <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
+                Local SQLite, deterministic offline fallback, and cryptographic auditability.
+              </h2>
+              <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
+                Run ShieldStaff directly on your workstation or air-gapped node with SQLite async storage,
+                local vLLM endpoints, or the built-in deterministic simulator—with no mandatory
+                external cloud upload.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {LOCAL_MODE_GUARANTEES.map((item, idx) => {
+                const Icon = idx === 0 ? Cpu : idx === 1 ? Database : HardDrive;
+                return (
+                  <article
+                    key={item.id}
+                    className="rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 flex flex-col justify-between shadow-xs"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span className="font-mono text-[11px] font-bold text-[var(--accent-brand-ink)]">
+                          {item.tag}
+                        </span>
+                        <Icon size={16} className="text-[var(--accent-brand-ink)]" />
+                      </div>
+                      <h3 className="font-serif text-lg font-semibold text-[var(--text-primary)]">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-2 leading-relaxed">
+                        {item.detail}
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
+                      {item.artifactNote}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="relative z-10 py-10 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-secondary)] border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 backdrop-blur-[2px]">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+            <div className="md:col-span-5 space-y-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={14} className="text-[var(--status-verified-ink)] shrink-0" />
+                <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
+                  ShieldStaff · Evidence-Verified Document Intelligence
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-sm">
+                Every answer is tied to a source quote or flagged for review.
+              </p>
+              <div className="text-[11px] font-mono text-[var(--text-muted)]">
+                SQLite Async · Local vLLM / Offline Fallback · SHA-256 Audit Ledger
+              </div>
+            </div>
+
+            <div className="md:col-span-4 space-y-2">
+              <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                Page Sections
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => scrollToSection("hero")}
+                  className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Overview
+                </button>
+                {LANDING_NAV_ITEMS.map((navItem) => (
+                  <button
+                    key={navItem.id}
+                    type="button"
+                    onClick={() => scrollToSection(navItem.id)}
+                    className="text-[var(--text-secondary)] hover:text-[var(--accent-brand-ink)] underline underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                  >
+                    {navItem.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="md:col-span-3 space-y-2">
+              <div className="text-[11px] font-mono font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                Application Routes
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                <Link
+                  to="/workspace"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Workspace
+                </Link>
+                <Link
+                  to="/triage"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Triage Queue
+                </Link>
+                <Link
+                  to="/results"
+                  className="text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  Results Report
+                </Link>
+                <Link
+                  to="/results?tab=audit"
+                  className="inline-flex items-center gap-1 text-[var(--accent-brand-ink)] hover:opacity-80 font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] rounded"
+                >
+                  <ShieldCheck size={12} />
+                  <span>Audit Ledger</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </footer>
+
+        <CommandPaletteModal
+          open={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      </div>
+    );
+  }
+
+  return <LegacyLandingPage />;
+}
+
+function LegacyLandingPage() {
   const navigate = useNavigate();
   const { uploadFiles, loadDemo, workspaceId } = useBertStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -150,21 +330,28 @@ export function LandingPage() {
   const hasStagedFiles = stagedFiles.length > 0;
 
   return (
-    <div className="w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+    <div className="relative w-full overflow-x-clip bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+      {ENABLE_INTERACTIVE_HOME && <HomeBackdrop />}
       {/* SECTION 1: Hero & Interactive Intake Card */}
       <section
         id="hero"
-        className="relative bg-[var(--bg-hero)] text-[#F4F1EA] overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14"
+        className={`relative overflow-hidden pt-20 pb-14 sm:pt-24 sm:pb-16 lg:py-24 px-4 sm:px-8 md:px-10 lg:px-14 ${
+          ENABLE_INTERACTIVE_HOME
+            ? "z-10 bg-transparent text-[var(--text-primary)]"
+            : "bg-[var(--bg-hero)] text-[#F4F1EA]"
+        }`}
       >
-        <Particles
-          particleColors={["#F4F1EA", "#82C4EC", "#C8C2B6"]}
-          particleCount={140}
-          speed={0.07}
-          connections={true}
-          moveParticlesOnHover={true}
-          hoverEffect="parallax"
-          className="opacity-70"
-        />
+        {!ENABLE_INTERACTIVE_HOME && (
+          <Particles
+            particleColors={["#F4F1EA", "#82C4EC", "#C8C2B6"]}
+            particleCount={140}
+            speed={0.07}
+            connections={true}
+            moveParticlesOnHover={true}
+            hoverEffect="parallax"
+            className="opacity-70"
+          />
+        )}
 
         <div className="relative z-10 w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           {/* Left Column: Clean Dossier Intake Card */}
@@ -292,7 +479,7 @@ export function LandingPage() {
                 <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <span className="font-medium">Pipeline</span>
                   <span className="font-mono text-[11px] text-[var(--text-secondary)] tabular-nums">
-                    7-Agent Regiment
+                    7-Agent Pipeline
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
@@ -348,17 +535,41 @@ export function LandingPage() {
 
           {/* Right Column: High-Contrast Value Proposition */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left min-w-0">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-hero-card)] text-[#B8DCF2] border border-[#2F4461] text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-[#82C4EC]" />
-              <span>BERT · DETERMINISTIC EVIDENCE VERIFICATION</span>
+            <div
+              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono border ${
+                ENABLE_INTERACTIVE_HOME
+                  ? "bg-[var(--bg-surface)]/90 text-[var(--accent-brand-ink)] border-[var(--border-subtle)] shadow-xs"
+                  : "bg-[var(--bg-hero-card)] text-[#B8DCF2] border-[#2F4461]"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  ENABLE_INTERACTIVE_HOME ? "bg-[var(--accent-brand)]" : "bg-[#82C4EC]"
+                }`}
+              />
+              <span>ShieldStaff · DETERMINISTIC EVIDENCE VERIFICATION</span>
             </div>
 
-            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] text-[#F4F1EA]">
+            <h1
+              className={`font-serif text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.08] ${
+                ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+              }`}
+            >
               Drop files.{" "}
-              <span className="italic font-normal text-[#A8D4F5]">Verify every line.</span>
+              <span
+                className={`italic font-normal ${
+                  ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                }`}
+              >
+                Verify every line.
+              </span>
             </h1>
 
-            <p className="max-w-2xl text-base sm:text-lg text-[#E6E2D8] leading-relaxed mx-auto lg:mx-0">
+            <p
+              className={`max-w-2xl text-base sm:text-lg leading-relaxed mx-auto lg:mx-0 ${
+                ENABLE_INTERACTIVE_HOME ? "text-[var(--text-secondary)]" : "text-[#E6E2D8]"
+              }`}
+            >
               Every answer is tied to a verbatim source quote (&ge;97% rapidfuzz match) or
               flagged for human review. Missing or low-confidence evidence fails closed to
               human triage.
@@ -366,27 +577,69 @@ export function LandingPage() {
 
             {/* Verifiable Guarantees Strip */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   QUOTE GATE
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug tabular-nums">
+                <p
+                  className={`text-xs mt-1 leading-snug tabular-nums ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   &ge;97% rapidfuzz match + &ge;0.92 critical-entity logprob check.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   SHA-256 LEDGER
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
+                <p
+                  className={`text-xs mt-1 leading-snug ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   Every ingested file is SHA-256 checksummed into an immutable Audit Ledger.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-hero-card)] border border-[#2F4461]">
-                <div className="text-[11px] font-mono font-semibold text-[#A8D4F5]">
+              <div
+                className={`p-3.5 rounded-2xl border ${
+                  ENABLE_INTERACTIVE_HOME
+                    ? "bg-[var(--bg-surface)]/90 border-[var(--border-subtle)] shadow-xs"
+                    : "bg-[var(--bg-hero-card)] border-[#2F4461]"
+                }`}
+              >
+                <div
+                  className={`text-[11px] font-mono font-semibold ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--accent-brand-ink)]" : "text-[#A8D4F5]"
+                  }`}
+                >
                   FAIL-CLOSED TRIAGE
                 </div>
-                <p className="text-xs text-[#F4F1EA] mt-1 leading-snug">
+                <p
+                  className={`text-xs mt-1 leading-snug ${
+                    ENABLE_INTERACTIVE_HOME ? "text-[var(--text-primary)]" : "text-[#F4F1EA]"
+                  }`}
+                >
                   Unsupported claims route to human triage instead of unverified prose.
                 </p>
               </div>
@@ -418,7 +671,11 @@ export function LandingPage() {
       {/* SECTION 2: Interactive Claim -> Source Evidence Demo */}
       <section
         id="evidence-demo"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/85 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
       >
         <div
           className="max-w-5xl mx-auto space-y-8"
@@ -440,7 +697,7 @@ export function LandingPage() {
                 Inspect how every claim resolves to source proof—or fails closed.
               </h2>
               <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                Step through real BERT verification cases: SOC 2 MFA, AWS IAM{" "}
+                Step through real ShieldStaff verification cases: SOC 2 MFA, AWS IAM{" "}
                 <code className="px-1 py-0.5 rounded bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-mono">
                   s3:*
                 </code>{" "}
@@ -634,18 +891,20 @@ export function LandingPage() {
       {/* SECTION 3: 7-Agent Pipeline Visual */}
       <section
         id="how-it-works"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME ? "bg-[var(--bg-canvas)]/70" : "bg-[var(--bg-canvas)]"
+        }`}
       >
         <div className="max-w-6xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--accent-brand-ink)]">
-              7-AGENT REGIMENT PIPELINE
+              7-AGENT REVIEW PIPELINE
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-[var(--text-primary)]">
               Scout through Envoy: seven specialized deterministic stages.
             </h2>
             <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
-              BERT separates OCR rescue, classification, temporal tracking, risk scoring,
+              ShieldStaff separates OCR rescue, classification, temporal tracking, risk scoring,
               structured fact extraction, conflict resolution, and verified synthesis into
               checkpointed stages you can pause and steer mid-run.
             </p>
@@ -690,7 +949,11 @@ export function LandingPage() {
       {/* SECTION 4: Verification Gate Explained */}
       <section
         id="security-gate"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/85 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
@@ -737,18 +1000,18 @@ export function LandingPage() {
       {/* SECTION 5: Use Cases (Keyboard-Accessible Accordions) */}
       <section
         id="use-cases"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--accent-brand)] text-white"
+        className="relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--accent-brand)] text-white"
       >
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
           <div className="lg:col-span-5 space-y-4">
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#D2E8F7]">
-              BERT USE CASES
+              SHIELDSTAFF USE CASES
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-semibold text-white">
               Built for messy compliance corpora across four native formats.
             </h2>
             <p className="text-sm text-[#EBF2F7] leading-relaxed">
-              Select any workflow to inspect how BERT parses source geometry, anchors locators,
+              Select any workflow to inspect how ShieldStaff parses source geometry, anchors locators,
               and routes edge cases to human reviewers.
             </p>
             <div className="pt-2">
@@ -825,7 +1088,9 @@ export function LandingPage() {
       {/* SECTION 6: Security & Local Mode */}
       <section
         id="local-mode"
-        className="scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-canvas)] text-[var(--text-primary)] border-b border-[var(--border-subtle)]"
+        className={`relative z-10 scroll-mt-20 py-16 sm:py-20 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-primary)] border-b border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME ? "bg-[var(--bg-canvas)]/70" : "bg-[var(--bg-canvas)]"
+        }`}
       >
         <div className="max-w-5xl mx-auto space-y-10">
           <div className="max-w-3xl space-y-3">
@@ -836,7 +1101,7 @@ export function LandingPage() {
               Local SQLite, deterministic offline fallback, and cryptographic auditability.
             </h2>
             <p className="text-sm sm:text-base text-[var(--text-secondary)] leading-relaxed">
-              Run BERT directly on your workstation or air-gapped node with SQLite async storage,
+              Run ShieldStaff directly on your workstation or air-gapped node with SQLite async storage,
               local vLLM endpoints, or the built-in deterministic simulator—with no mandatory
               external cloud upload.
             </p>
@@ -875,17 +1140,23 @@ export function LandingPage() {
       </section>
 
       {/* SECTION 7: Footer */}
-      <footer className="py-10 px-4 sm:px-8 md:px-10 lg:px-14 bg-[var(--bg-surface)] text-[var(--text-secondary)] border-t border-[var(--border-subtle)]">
+      <footer
+        className={`relative z-10 py-10 px-4 sm:px-8 md:px-10 lg:px-14 text-[var(--text-secondary)] border-t border-[var(--border-subtle)] ${
+          ENABLE_INTERACTIVE_HOME
+            ? "bg-[var(--bg-surface)]/90 backdrop-blur-[2px]"
+            : "bg-[var(--bg-surface)]"
+        }`}
+      >
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
           <div className="md:col-span-5 space-y-2">
             <div className="flex items-center gap-2">
               <ShieldCheck size={14} className="text-[var(--status-verified-ink)] shrink-0" />
               <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
-                BERT · Evidence-Verified Document Intelligence
+                ShieldStaff · Evidence-Verified Document Intelligence
               </span>
             </div>
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-sm">
-              Inspired by Marshal Louis-Alexandre Berthier. Every answer is backed by verbatim
+              Every answer is backed by verbatim
               source quotes (&ge;97% rapidfuzz match) or escalated to human triage.
             </p>
             <div className="text-[11px] font-mono text-[var(--text-muted)]">

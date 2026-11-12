@@ -1,4 +1,4 @@
-"""Marshal Berthier pipeline agents."""
+"""ShieldStaff pipeline agents."""
 
 from bert.agents.ranger import ExtractedFact
 

@@ -118,6 +118,7 @@ const QUERY_STOP_WORDS = new Set([
   "company",
   "policy",
   "policies",
+  "shieldstaff",
   "bert",
   "copilot",
   "please",
@@ -789,7 +790,7 @@ export function generateLocalExecutiveSummary({
     const scopeLabel = scopedDoc ? scopedDoc.filename : "the active filters";
     const emptyMsg = `0 findings for this document/filter (${scopeLabel}).`;
     const md = [
-      "# BERT Executive Review Summary (Envoy)",
+      "# ShieldStaff Executive Review Summary (Envoy)",
       "",
       `Scope: ${scopedDoc ? scopedDoc.filename : "All Documents"} | Only Critical: ${onlyCritical} | Latest Version Only: ${latestOnly}`,
       "",
@@ -863,7 +864,7 @@ export function generateLocalExecutiveSummary({
   const summaryText = parts.join(" · ") + ".";
 
   const lines = [
-    "# BERT Executive Review Summary (Envoy)",
+    "# ShieldStaff Executive Review Summary (Envoy)",
     "",
     `- **Scope**: ${scopedDoc ? scopedDoc.filename : "All Documents"}`,
     `- **Total Findings**: ${totalWorkItems}`,

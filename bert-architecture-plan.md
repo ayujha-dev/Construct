@@ -1,14 +1,14 @@
-# BERT — Agentic Zero-Hallucination Document Intelligence Platform
+# ShieldStaff — Agentic Zero-Hallucination Document Intelligence Platform
 
 ## Goal
 
-Design and build **BERT**, an enterprise AI compliance and document intelligence platform that ingests physical scans, digital PDFs, Excel questionnaires (`.xlsx`), and 50MB+ JSON configs. All inputs decompose into an immutable PostgreSQL Abstract Syntax Tree (`ast_nodes`), get automatically sorted/categorized/prioritized, and produce fluent, executive-ready outputs backed by deterministic substring citation checks.
+Design and build **ShieldStaff**, an enterprise AI compliance and document intelligence platform that ingests physical scans, digital PDFs, Excel questionnaires (`.xlsx`), and 50MB+ JSON configs. All inputs decompose into an immutable PostgreSQL Abstract Syntax Tree (`ast_nodes`), get automatically sorted/categorized/prioritized, and produce fluent, executive-ready outputs backed by deterministic substring citation checks.
 
-The system uses a **7-agent "Marshal Berthier" regiment** orchestrated via LangGraph, powered by the Qwen model family running on a single 48GB GPU via vLLM, with cloud burst fallback to Groq and Anthropic.
+The system uses a **7-agent pipeline** orchestrated via LangGraph, powered by the Qwen model family running on a single 48GB GPU via vLLM, with cloud burst fallback to Groq and Anthropic.
 
 ### Key Architectural Pivots from Previous "Construct" Plan
 
-| Dimension          | Old (Construct)        | New (BERT)                                                  |
+| Dimension          | Old (Construct)        | New (ShieldStaff)                                           |
 | ------------------ | ---------------------- | ----------------------------------------------------------- |
 | App type           | Tauri v2 desktop       | **React 19 web app** (Vite)                                 |
 | Input types        | Legal PDFs/scans only  | **PDFs + XLSX + 50MB+ JSON**                                |
@@ -20,7 +20,7 @@ The system uses a **7-agent "Marshal Berthier" regiment** orchestrated via LangG
 | Storage            | MinIO (AGPL)           | **SeaweedFS** (Apache 2.0) or encrypted local FS            |
 | OCR                | Docling + Surya (GPL)  | **Docling + PaddleOCR** (Apache 2.0)                        |
 | Guardrails         | NeMo Guardrails        | **Deterministic Python verification** (rapidfuzz + logprob) |
-| Agents             | 4 generic agents       | **7 named regiment** (Scout→Envoy)                          |
+| Agents             | 4 generic agents       | **7 named pipeline stages** (Scout→Envoy)                   |
 | Anti-hallucination | 5-layer defense        | **Hard extraction/fluency decoupling** + substring gate     |
 
 ---
@@ -28,7 +28,7 @@ The system uses a **7-agent "Marshal Berthier" regiment** orchestrated via LangG
 ## User Decisions & Confirmed Requirements
 
 > [!NOTE]
-> **Product Identity**: Confirmed name is **BERT** (inspired by Marshal Louis-Alexandre Berthier, Napoleon's Chief of Staff and operational mastermind). All legacy "Construct" nomenclature has been eradicated.
+> **Product Identity**: Confirmed name is **ShieldStaff**. All legacy "Construct" nomenclature has been eradicated.
 
 > [!NOTE]
 > **Licensing Strategy**: The team will retain a professional legal/licensing specialist prior to release to verify compliance across all open-source dependencies (ensuring clean Apache 2.0 / MIT / BSD / PostgreSQL licensing).
@@ -92,7 +92,7 @@ flowchart TD
         CHECKSUM["SHA-256\nCompleteness Check"]
     end
 
-    subgraph REGIMENT["🎖️ Marshal Berthier Regiment (LangGraph)"]
+    subgraph REGIMENT["🛡️ ShieldStaff Pipeline (LangGraph)"]
         SCOUT["1. Scout\n(Qwen2.5-VL-7B)\nVision OCR Rescue"]
         QM["2. Quartermaster\n(Qwen2.5-14B)\nClassification"]
         CHRONOS["3. Chronos\n(Qwen2.5-14B)\nTemporal Analysis"]
@@ -1422,7 +1422,7 @@ def run_verification_gate(
 
 ---
 
-### Component 5: The 7-Agent Regiment (LangGraph)
+### Component 5: The 7-Agent Pipeline (LangGraph)
 
 ```mermaid
 flowchart TD

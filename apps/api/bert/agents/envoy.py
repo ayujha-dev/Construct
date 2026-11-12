@@ -162,7 +162,7 @@ def build_executive_summary(
             "No verified evidence or open escalations are present for this selection."
         )
         markdown_lines = [
-            "# BERT Executive Review Summary",
+            "# ShieldStaff Executive Review Summary",
             "",
             summary_text,
             "",
@@ -242,7 +242,7 @@ def build_executive_summary(
     summary_text = " ".join(sentences)
 
     markdown_lines = [
-        "# BERT Executive Review Summary",
+        "# ShieldStaff Executive Review Summary",
         "",
         summary_text,
         "",

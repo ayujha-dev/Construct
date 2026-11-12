@@ -17,8 +17,8 @@ function parseArgs() {
     all: false,
     id: null,
     bail: false,
-    apiUrl: process.env.BERT_API_URL || "http://localhost:8000",
-    webUrl: process.env.BERT_WEB_URL || "http://localhost:5173",
+    apiUrl: process.env.SHIELDSTAFF_API_URL || process.env.BERT_API_URL || "http://localhost:8000",
+    webUrl: process.env.SHIELDSTAFF_WEB_URL || process.env.BERT_WEB_URL || "http://localhost:5173",
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -48,7 +48,7 @@ function parseArgs() {
 async function main() {
   const options = parseArgs();
   console.log("================================================================================");
-  console.log("           BERT Document Intelligence Platform — E2E Test Runner                ");
+  console.log("       ShieldStaff Document Intelligence Platform — E2E Test Runner            ");
   console.log("================================================================================");
   console.log(`Backend API:  ${options.apiUrl}`);
   console.log(`Web Frontend: ${options.webUrl}`);
@@ -66,7 +66,7 @@ async function main() {
 
   console.log(`Loaded ${selectedTests.length} test cases for execution.\n`);
 
-  const api = new BertApiClient(options.apiUrl);
+  const api = new BertApiClient(options.apiUrl, options.wsUrl || options.apiUrl.replace(/^http/, "ws"));
   const browser = new HeadlessBrowser();
 
   const results = {

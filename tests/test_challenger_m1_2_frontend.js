@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { HeadlessBrowser, sleep } from "./e2e/lib/cdp.js";
 
-const WEB_URL = process.env.BERT_WEB_URL || "http://localhost:5173";
+const WEB_URL = process.env.SHIELDSTAFF_WEB_URL || process.env.BERT_WEB_URL || "http://localhost:5173";
 const APP_TSX_PATH = path.resolve("apps/web/src/App.tsx");
 const SRC_DIR = path.resolve("apps/web/src");
 

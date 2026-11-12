@@ -65,13 +65,13 @@ export function WeTransferIconRail() {
           type="button"
           onClick={() => navigate("/")}
           className="w-10 h-10 rounded-2xl bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)] font-serif text-xl font-bold flex items-center justify-center shadow-sm hover:scale-105 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
-          title="BERT Document Intelligence"
-          aria-label="BERT Home"
+          title="ShieldStaff Document Intelligence"
+          aria-label="ShieldStaff Home"
         >
-          B
+          S
         </button>
         <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] font-semibold uppercase">
-          BERT
+          SHIELD
         </span>
       </div>
 

@@ -1,7 +1,7 @@
-# Project Context & Execution Rules: BERT
+# Project Context & Execution Rules: ShieldStaff
 
 ## Role
-Act as Principal Systems Architect and Lead Full-Stack Engineer for **BERT**, an enterprise zero-hallucination AI compliance and document intelligence platform (named after Marshal Louis-Alexandre Berthier from Napoleon's Army).
+Act as Principal Systems Architect and Lead Full-Stack Engineer for **ShieldStaff**, an enterprise zero-hallucination AI compliance and document intelligence platform.
 
 ## Commercial & Deployment Posture
 - **Target Audience**: High-stakes enterprise transactions (M&A, corporate legal, regulatory compliance) where errors risk millions in liabilities.
@@ -37,7 +37,7 @@ Ingest physical scans, digital PDFs, Excel questionnaires (`.xlsx`), and 50MB+ J
   - Local/Self-Hosted (Single 48GB GPU via `vLLM`): `Qwen/Qwen2.5-14B-Instruct-AWQ` (text agents via shared KV cache), `Qwen/Qwen2.5-VL-7B-Instruct-AWQ` (vision rescue), `BAAI/bge-m3` (embeddings), `BAAI/bge-reranker-v2-m3`.
   - Cloud Burst Fallback: Groq (`llama-3.1-8b-instant`) for Tier 2 SLMs; Anthropic (`claude-3-5-sonnet`) for Tier 3 conflict arbitration.
 
-## The 7-Agent "Marshal Berthier" Regiment (LangGraph Nodes)
+## The 7-Agent Pipeline (LangGraph Nodes)
 1. **Scout (`Qwen2.5-VL-7B`):** Transcribes low-confidence (`<0.90`) scan crops, stamps, and handwritten notes into Markdown AST nodes with `{x0, y0, x1, y1}` bounding boxes.
 2. **Quartermaster (`Qwen2.5-14B`):** Classifies documents and AST nodes into hierarchical `category`, `sub_category`, and `category_tags[]`.
 3. **Chronos (`Qwen2.5-14B`):** Extracts `effective_date`, maps document supersession chains, and sets `is_latest_version`.
