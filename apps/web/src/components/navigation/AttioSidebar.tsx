@@ -239,16 +239,26 @@ export function AttioSidebar({ onNavigate }: AttioSidebarProps) {
           </NavLink>
 
           <NavLink
-            to="/results?filter=escalations"
+            to="/triage"
+            data-testid="sidebar-triage-link"
             onClick={() => onNavigate?.()}
-            className="flex items-center justify-between px-3 py-2 rounded-lg text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+            className={({ isActive }) =>
+              `flex items-center justify-between px-3 py-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                isActive || location.pathname === "/triage"
+                  ? "bg-rose-50 text-rose-950 font-semibold"
+                  : "text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50"
+              }`
+            }
           >
             <div className="flex items-center gap-2.5">
               <ShieldAlert size={16} className="text-rose-700" />
               <span>Human Escalations</span>
             </div>
             {metrics.needsTriage > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200">
+              <span
+                data-testid="sidebar-triage-badge"
+                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-200"
+              >
                 {metrics.needsTriage}
               </span>
             )}

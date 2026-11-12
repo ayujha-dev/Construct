@@ -280,20 +280,47 @@ export const tier1Tests = [
     name: "Escalation Resolution approve",
     tier: 1,
     feature: "F03",
-    description: "POST /api/v1/escalations/{id}/resolve with {action: 'approve'} returns HTTP 200 OK with VERIFIED status",
+    description: "POST /api/v1/escalations/{id}/resolve with {action: 'approve'} rejects missing-proof items (422) and approves items with vision_rescue_text/machine_extracted_text (200 VERIFIED)",
     run: async ({ api }) => {
       await api.seedDemo();
       const escalationsRes = await api.getEscalations();
       assert(escalationsRes.ok && escalationsRes.data.length > 0, "Seeded escalations exist");
 
-      const workItemId = escalationsRes.data[0].work_item_id;
-      const res = await api.resolveEscalation(workItemId, {
-        action: "approve",
-        correction: "Approved via automated E2E test",
-      });
+      const emptyItem = escalationsRes.data.find(
+        (e) => !e.machine_extracted_text && !e.vision_rescue_text
+      );
+      if (emptyItem) {
+        const rejectRes = await api.resolveEscalation(emptyItem.work_item_id, {
+          action: "approve",
+          correction: "Should be rejected without machine/rescue text",
+        });
+        assertEqual(
+          rejectRes.status,
+          422,
+          `Expected HTTP 422 on approve without machine/rescue text, got ${rejectRes.status}`
+        );
+      }
 
-      // Assert contract
-      assertEqual(res.status, 200, `Expected HTTP 200 on approve, got ${res.status}: ${JSON.stringify(res.data)}`);
+      // Upload and process a low-confidence stamp document so an escalation has vision_rescue_text
+      const up = await api.uploadTextDocument(
+        "f03_vision_rescue.txt",
+        "[LOW_CONFIDENCE] STAMP NOTE: Signed compliance addendum dated 2026-03-01.\n"
+      );
+      assert(up.ok && up.data?.id, `Uploaded rescue doc (status ${up.status})`);
+      const job = await api.startJob({ document_id: up.data.id });
+      assert(job.ok && job.data?.job_id, "Started review job for rescue doc");
+      await api.waitForJob(job.data.job_id);
+
+      const docEsc = await api.getEscalations({ documentId: up.data.id });
+      const approvable = (docEsc.data || []).find(
+        (e) => Boolean(e.vision_rescue_text) || Boolean(e.machine_extracted_text)
+      );
+      assert(Boolean(approvable), "Processed scan/low-OCR escalation exposes vision_rescue_text or machine_extracted_text");
+
+      const res = await api.resolveEscalation(approvable.work_item_id, {
+        action: "approve",
+      });
+      assertEqual(res.status, 200, `Expected HTTP 200 on approve with rescue/machine text, got ${res.status}: ${JSON.stringify(res.data)}`);
       assertEqual(res.data?.verification_status, "VERIFIED", "Status is VERIFIED");
     },
   },
@@ -459,7 +486,15 @@ export const tier1Tests = [
     description: "Resolving work item updates badge instantaneously without waiting for periodic poll",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
+      const up = await api.uploadTextDocument(
+        "f04_vision_rescue.txt",
+        "[LOW_CONFIDENCE] STAMP NOTE: Signed addendum dated 2026-03-01.\n"
+      );
+      assert(up.ok && up.data?.id, "Uploaded rescue doc for TC-F04-04");
+      const job = await api.startJob({ document_id: up.data.id });
+      await api.waitForJob(job.data.job_id);
       await page.goto(`${webUrl}/workspace`);
+      await sleep(600);
 
       const hasActionBtn = await page.evaluate(() => {
         const acceptBtn = Array.from(document.querySelectorAll("button")).find((b) =>
@@ -467,7 +502,7 @@ export const tier1Tests = [
         );
         return Boolean(acceptBtn);
       });
-      assert(hasActionBtn, "Interactive escalation action buttons rendered in UI");
+      assert(hasActionBtn, "Interactive Accept Vision Rescue Text action button rendered for rescue item in UI");
     },
   },
   {

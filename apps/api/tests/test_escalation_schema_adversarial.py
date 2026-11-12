@@ -21,7 +21,7 @@ from bert.models.documents import AuditLog, Document, PriorityTier, Verification
 # Helper to Seed an Isolated WorkItem without starting asynchronous background agents
 # ==============================================================================
 
-async def _seed_one_work_item() -> tuple[str, str]:
+async def _seed_one_work_item(*, machine_extracted_text: str | None = None) -> tuple[str, str]:
     """Helper to insert an isolated document and work item for resolution tests."""
     doc_id = uuid.uuid4()
     item_id = uuid.uuid4()
@@ -58,6 +58,7 @@ async def _seed_one_work_item() -> tuple[str, str]:
             verified_citations=[],
             verification_status=VerificationStatus.NEEDS_HUMAN_VERIFICATION,
             resolved_by_tier="HUMAN_IN_THE_LOOP",
+            machine_extracted_text=machine_extracted_text,
         )
         session.add(item)
         await session.commit()
@@ -229,7 +230,13 @@ async def test_endpoint_resolves_all_five_actions_without_422(
 ) -> None:
     """Verify that all resolution actions update status, priority preservation, and audit fields accurately."""
     await startup()
-    _, work_item_id = await _seed_one_work_item()
+    _, work_item_id = await _seed_one_work_item(
+        machine_extracted_text=(
+            "Multifactor authentication is enforced for privileged access."
+            if action_payload["action"] == "approve"
+            else None
+        )
+    )
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
@@ -296,6 +303,7 @@ async def test_endpoint_resolves_all_five_actions_without_422(
         {"action": "skip"},
         {"action": "skip", "note": "   ", "reason_code": "   "},
         {"action": "not_applicable"},
+        {"action": "approve", "note": "Cannot approve nonexistent machine text"},
         {"action": "approve", "manual_payload": "string_not_dict"},
     ],
 )

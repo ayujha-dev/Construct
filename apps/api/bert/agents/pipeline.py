@@ -483,6 +483,27 @@ def _min_words_for_node(node: ASTNode | None, quote: str) -> int | None:
     return None
 
 
+def _is_vision_rescue_node(node: ASTNode | None, document: Document | None) -> bool:
+    """Return True only for low-confidence OCR, scanned PDF, or stamp/addendum nodes."""
+    if node is None:
+        return False
+    node_type_val = str(getattr(node.node_type, "value", node.node_type))
+    doc_format_val = str(getattr(document.source_format, "value", document.source_format)) if document is not None else ""
+    return (
+        float(node.ocr_confidence or 0.0) < 0.90
+        or node_type_val == NodeType.STAMP_NOTE.value
+        or doc_format_val == SourceFormat.PHYSICAL_SCAN.value
+    )
+
+
+def _sanitize_extracted_text(value: str | None) -> str | None:
+    """Return stripped non-empty text, never storing the insufficient-evidence sentinel."""
+    cleaned = (value or "").strip()
+    if not cleaned or cleaned == INSUFFICIENT_EVIDENCE_OUTPUT:
+        return None
+    return cleaned
+
+
 def verify_node_region(
     node: ASTNode,
     document: Document | None,
@@ -733,6 +754,26 @@ async def _emit_chronos_temporal_conflicts(
             "weak_evidence_reason": weak_reason,
         }
 
+        newer_rescue = _is_vision_rescue_node(newer_node, latest_doc)
+        older_rescue = _is_vision_rescue_node(older_node, legacy_doc)
+        if newer_rescue or older_rescue:
+            rescue_parts = [
+                cleaned
+                for node_ref, is_rescue in ((newer_node, newer_rescue), (older_node, older_rescue))
+                if is_rescue and (cleaned := _sanitize_extracted_text(node_ref.verbatim_text))
+            ]
+            tc_vision_rescue_text = " | ".join(rescue_parts) if rescue_parts else None
+            tc_has_vision_rescue = bool(tc_vision_rescue_text)
+            tc_machine_extracted_text = (
+                _sanitize_extracted_text(newer_node.verbatim_text)
+                if (both_passed and not newer_rescue)
+                else None
+            )
+        else:
+            tc_vision_rescue_text = None
+            tc_has_vision_rescue = False
+            tc_machine_extracted_text = _sanitize_extracted_text(fluent_output) if both_passed else None
+
         item = WorkItem(
             workspace_id=workspace_id,
             batch_id=batch_id,
@@ -751,6 +792,9 @@ async def _emit_chronos_temporal_conflicts(
             weak_evidence=weak,
             weak_evidence_reason=weak_reason,
             evidence_quality=evidence_quality,
+            machine_extracted_text=tc_machine_extracted_text,
+            vision_rescue_text=tc_vision_rescue_text,
+            has_vision_rescue=tc_has_vision_rescue,
             temporal_conflict=temporal_payload,
             gate_telemetry=gate_telemetry,
         )
@@ -837,6 +881,15 @@ def _plan_document_finding(
         weak_reason = None
         evidence_quality = "missing"
 
+    if _is_vision_rescue_node(source_node, document):
+        vision_rescue_text = _sanitize_extracted_text(quote)
+        has_vision_rescue = bool(vision_rescue_text)
+        machine_extracted_text = None
+    else:
+        vision_rescue_text = None
+        has_vision_rescue = False
+        machine_extracted_text = _sanitize_extracted_text(quote) if (passed or is_weak) else None
+
     return {
         "node_index": index - 1,
         "source_node": source_node,
@@ -856,6 +909,9 @@ def _plan_document_finding(
         "weak_evidence": weak_evidence,
         "weak_reason": weak_reason,
         "evidence_quality": evidence_quality,
+        "machine_extracted_text": machine_extracted_text,
+        "vision_rescue_text": vision_rescue_text,
+        "has_vision_rescue": has_vision_rescue,
         "gate_telemetry": {
             "citation_match": gate.best_citation_score,
             "region_match_score": region_match_score,
@@ -987,6 +1043,24 @@ def _plan_questionnaire_finding(
     if latest_filenames and legacy_filenames and "password" in question.lower():
         supersession_note = f"{', '.join(latest_filenames)} supersedes {', '.join(legacy_filenames)}"
 
+    if fact_node is None or is_unanswerable:
+        vision_rescue_text = None
+        has_vision_rescue = False
+        machine_extracted_text = None
+    elif _is_vision_rescue_node(fact_node, fact_doc):
+        vision_rescue_text = _sanitize_extracted_text(fact_node.verbatim_text)
+        has_vision_rescue = bool(vision_rescue_text)
+        machine_extracted_text = None
+    else:
+        vision_rescue_text = None
+        has_vision_rescue = False
+        if passed:
+            machine_extracted_text = _sanitize_extracted_text(output)
+        elif is_weak:
+            machine_extracted_text = _sanitize_extracted_text(fact_node.verbatim_text)
+        else:
+            machine_extracted_text = None
+
     return {
         "node_index": index - 1,
         "question": question,
@@ -1006,6 +1080,9 @@ def _plan_questionnaire_finding(
         "weak_evidence": weak_evidence,
         "weak_reason": weak_reason,
         "evidence_quality": evidence_quality,
+        "machine_extracted_text": machine_extracted_text,
+        "vision_rescue_text": vision_rescue_text,
+        "has_vision_rescue": has_vision_rescue,
         "citations": citations,
         "supersession_note": supersession_note,
     }
@@ -1477,6 +1554,9 @@ async def run_regiment(
                     weak_evidence=plan["weak_evidence"],
                     weak_evidence_reason=plan["weak_reason"],
                     evidence_quality=plan["evidence_quality"],
+                    machine_extracted_text=plan["machine_extracted_text"],
+                    vision_rescue_text=plan["vision_rescue_text"],
+                    has_vision_rescue=plan["has_vision_rescue"],
                     gate_telemetry=plan["gate_telemetry"],
                 )
                 session.add(item)
@@ -1537,6 +1617,9 @@ async def run_regiment(
                     weak_evidence=plan["weak_evidence"],
                     weak_evidence_reason=plan["weak_reason"],
                     evidence_quality=plan["evidence_quality"],
+                    machine_extracted_text=plan["machine_extracted_text"],
+                    vision_rescue_text=plan["vision_rescue_text"],
+                    has_vision_rescue=plan["has_vision_rescue"],
                     gate_telemetry=plan["gate_payload"] | {"supersession": plan["supersession_note"]},
                 )
                 session.add(work_item)

@@ -651,9 +651,12 @@ export function localItems(
   batchId: string
 ): WorkItem[] {
   return nodes.map((node) => {
+    const cleanNodeText = node.verbatim_text.replace(/^\[LOW_CONFIDENCE\]\s*/i, "").trim();
+    const isMissingPlaceholder =
+      !cleanNodeText || /evidence missing|unanswered|no matching text/i.test(cleanNodeText);
     const risk = priorityFor(node.verbatim_text, node.ocr_confidence);
     const quoteStrength = assessQuoteStrength(node.verbatim_text);
-    const confident = node.ocr_confidence >= 0.9;
+    const confident = !isMissingPlaceholder && node.ocr_confidence >= 0.9;
     const isWeak = confident && quoteStrength.isWeak;
     const verified = confident && !isWeak;
     const priorityTier = !confident
@@ -662,6 +665,16 @@ export function localItems(
         ? "P1_HIGH"
         : risk.tier;
     const priorityScore = !confident ? 100 : isWeak ? Math.max(risk.score, 65) : risk.score;
+    const isScanRescue =
+      !isMissingPlaceholder &&
+      (!confident ||
+        node.node_type === "SCAN_STAMP" ||
+        node.node_type === "STAMP_NOTE" ||
+        Boolean(node.locator?.source_type === "pdf" && node.locator.is_scan));
+    const hasVisionRescue = isScanRescue;
+    const visionRescueText = isScanRescue ? cleanNodeText : null;
+    const machineExtractedText =
+      !isMissingPlaceholder && !isScanRescue ? cleanNodeText : null;
 
     return {
       id: uid(),
@@ -707,7 +720,10 @@ export function localItems(
         : isWeak
           ? "NEEDS_HUMAN_VERIFICATION"
           : "INSUFFICIENT_EVIDENCE",
-      resolved_by_tier: "TIER2_SLM_REGIMENT",
+      resolved_by_tier: hasVisionRescue ? "SCOUT_VISION_RESCUE" : "TIER2_SLM_REGIMENT",
+      has_vision_rescue: hasVisionRescue,
+      vision_rescue_text: visionRescueText,
+      machine_extracted_text: machineExtractedText,
       weak_evidence: isWeak,
       weak_evidence_reason: quoteStrength.reason,
       evidence_quality: !confident ? "missing" : isWeak ? "weak" : "strong",

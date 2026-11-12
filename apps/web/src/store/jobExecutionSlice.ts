@@ -12,10 +12,13 @@ import {
   validateManualOverrideInput,
   validateNotApplicableInput,
 } from "../lib/workItemMetrics";
+import { getAcceptActionState } from "../lib/triageQueue";
 import type {
   AgentRunEntry,
   AgentStepState,
   AuditLogEntry,
+  BatchResolvePayload,
+  BatchResolveResponse,
   EscalationActionPayload,
   ExecutiveSummary,
   JobExecution,
@@ -39,8 +42,10 @@ export type SummaryStatus = "idle" | "loading" | "ready" | "error";
 
 export interface UndoToast {
   workItemId: string;
+  workItemIds: string[];
   label: string;
   action: string;
+  isBulk?: boolean;
 }
 
 export interface JobExecutionSlice {
@@ -74,8 +79,13 @@ export interface JobExecutionSlice {
     correction?: string
   ) => Promise<void>;
   undoWorkItem: (workItemId: string, actor?: string, note?: string) => Promise<void>;
+  undoWorkItems: (workItemIds: string[], actor?: string, note?: string) => Promise<void>;
   dismissUndoToast: () => void;
-  batchResolve: (workItemIds: string[], action: string, note?: string) => Promise<void>;
+  batchResolve: (
+    workItemIds: string[],
+    actionOrPayload: string | Omit<BatchResolvePayload, "work_item_ids">,
+    note?: string
+  ) => Promise<BatchResolveResponse>;
   loadSummary: (params?: SummaryQueryParams, forceGenerate?: boolean) => Promise<ExecutiveSummary | null>;
   generateSummary: (params?: SummaryQueryParams) => Promise<ExecutiveSummary | null>;
   loadAuditLogs: () => Promise<void>;
@@ -369,6 +379,13 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         set({ notice: msg });
         throw new Error(msg);
       }
+    } else if (payload.action === "approve" && existing) {
+      const acceptState = getAcceptActionState(existing);
+      if (!acceptState.visible) {
+        const msg = "Cannot accept item without machine-extracted or vision rescue evidence.";
+        set({ notice: msg });
+        throw new Error(msg);
+      }
     }
 
     let updatedItem: WorkItem | null = null;
@@ -468,12 +485,16 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         escalatedAt = new Date().toISOString();
         output = `Escalated to ${escalationAssignee}: ${escalationReason}`;
       } else if (action === "approve") {
+        const acceptState = getAcceptActionState(existing);
         status = "VERIFIED";
+        const adoptedText =
+          acceptState.kind === "rescue"
+            ? existing.vision_rescue_text || existing.structured_facts[0]?.verbatim_quote || ""
+            : existing.machine_extracted_text || existing.structured_facts[0]?.verbatim_quote || "";
         output =
-          payload.correction ||
-          (existing.structured_facts[0]?.verbatim_quote
-            ? `Reviewer approved extracted evidence: ${existing.structured_facts[0]?.verbatim_quote}`
-            : "Reviewer approved finding.");
+          adoptedText ||
+          payload.correction?.trim() ||
+          "Reviewer approved finding.";
       }
 
       updatedItem = {
@@ -531,6 +552,7 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
         auditLogs: usedFallback || !s.backendAvailable ? [localAudit, ...s.auditLogs.slice(0, 249)] : s.auditLogs,
         undoToast: {
           workItemId,
+          workItemIds: [workItemId],
           label: itemToSet.prompt_or_question.slice(0, 48),
           action:
             payload.action === "counsel"
@@ -539,7 +561,12 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
                 ? "Human Override"
                 : payload.action === "skip"
                   ? "Marked N/A"
-                  : `Updated (${itemToSet.verification_status})`,
+                  : payload.action === "approve"
+                    ? getAcceptActionState(existing).kind === "rescue"
+                      ? "Accepted Vision Rescue Text"
+                      : "Accepted Extracted Evidence"
+                    : `Updated (${itemToSet.verification_status})`,
+          isBulk: false,
         },
         notice:
           payload.action === "counsel"
@@ -610,10 +637,190 @@ export const createJobExecutionSlice: StateCreator<BertState, [], [], JobExecuti
     if (state.backendAvailable && !usedFallback) void get().loadAuditLogs();
   },
 
-  batchResolve: async (workItemIds, action, note = "") => {
-    if (!workItemIds.length) return;
-    await Promise.all(workItemIds.map((id) => get().resolveWorkItem(id, action, note)));
-    set({ notice: `Batch resolved ${workItemIds.length} item(s) (${action}).` });
+  undoWorkItems: async (workItemIds, actor, note) => {
+    const uniqueIds = Array.from(new Set(workItemIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+    if (uniqueIds.length === 1) {
+      await get().undoWorkItem(uniqueIds[0], actor, note);
+      return;
+    }
+    for (const id of uniqueIds) {
+      await get().undoWorkItem(id, actor, note);
+    }
+    set({
+      undoToast: null,
+      notice: `Reverted ${uniqueIds.length} item(s) to previous state.`,
+    });
+  },
+
+  batchResolve: async (workItemIds, actionOrPayload, note = "") => {
+    const uniqueIds = Array.from(new Set(workItemIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return { updated_count: 0, skipped_ids: [], items: [], errors: [] };
+    }
+
+    const basePayload: Omit<BatchResolvePayload, "work_item_ids"> =
+      typeof actionOrPayload === "string"
+        ? {
+            action: (actionOrPayload === "not_applicable"
+              ? "skip"
+              : actionOrPayload) as EscalationActionPayload["action"],
+            note,
+          }
+        : {
+            ...actionOrPayload,
+            action: (actionOrPayload.action === ("not_applicable" as string)
+              ? "skip"
+              : actionOrPayload.action) as EscalationActionPayload["action"],
+          };
+
+    if (basePayload.action === "skip") {
+      const check = validateNotApplicableInput({
+        reasonCode: basePayload.reason_code,
+        note: basePayload.note ?? basePayload.correction,
+      });
+      if (!check.valid) {
+        const msg = check.message || "Mark N/A requires an explicit reason.";
+        set({ notice: msg });
+        throw new Error(msg);
+      }
+    } else if (basePayload.action === "manual_correction") {
+      const check = validateManualOverrideInput({
+        correction: basePayload.correction ?? basePayload.note ?? "",
+        reasonCode: basePayload.reason_code ?? "",
+        noEvidenceAttestation: basePayload.no_evidence_attestation,
+      });
+      if (!check.valid) {
+        const msg = check.message || "Invalid manual override submission.";
+        set({ notice: msg });
+        throw new Error(msg);
+      }
+    }
+
+    const state = get();
+    const preSnapshots: Record<string, WorkItem> = {};
+    for (const id of uniqueIds) {
+      const found = state.workItems.find((item) => item.id === id);
+      if (found) preSnapshots[id] = { ...found };
+    }
+
+    const actionToastLabel =
+      basePayload.action === "counsel"
+        ? "Bulk Flagged for Legal"
+        : basePayload.action === "skip"
+          ? "Bulk Marked N/A"
+          : basePayload.action === "approve"
+            ? "Bulk Accepted Evidence"
+            : basePayload.action === "manual_correction"
+              ? "Bulk Override"
+              : `Bulk ${basePayload.action}`;
+
+    if (state.backendAvailable) {
+      try {
+        const response = await bertApi.batchResolve({
+          work_item_ids: uniqueIds,
+          ...basePayload,
+        });
+        const updatedMap = new Map(response.items.map((item) => [item.id, item]));
+        const updatedIds = response.items.map((item) => item.id);
+        set((s) => {
+          const nextSnaps = { ...s.workItemUndoSnapshots };
+          for (const id of updatedIds) {
+            if (preSnapshots[id]) {
+              nextSnaps[id] = preSnapshots[id];
+            }
+          }
+          return {
+            workItems: s.workItems.map((item) => updatedMap.get(item.id) ?? item),
+            workItemUndoSnapshots: nextSnaps,
+            undoToast:
+              updatedIds.length > 0
+                ? {
+                    workItemId: updatedIds[0],
+                    workItemIds: updatedIds,
+                    label: `${updatedIds.length} item${updatedIds.length === 1 ? "" : "s"}`,
+                    action: actionToastLabel,
+                    isBulk: updatedIds.length > 1,
+                  }
+                : s.undoToast,
+            notice: `Batch resolved ${response.updated_count} item(s)${
+              response.skipped_ids.length > 0 ? ` (${response.skipped_ids.length} skipped)` : ""
+            }.`,
+          };
+        });
+        void get().loadSummary(get().summaryParams, true);
+        void get().loadAuditLogs();
+        return response;
+      } catch (err) {
+        if (!isNetworkFailure(err) && !(err instanceof Error && /404|not found/i.test(err.message))) {
+          const msg = err instanceof Error ? err.message : "Batch resolve failed.";
+          set({ notice: msg });
+          throw err instanceof Error ? err : new Error(msg);
+        }
+      }
+    }
+
+    // Offline / local deterministic fallback parity
+    const updatedItems: WorkItem[] = [];
+    const skippedIds: string[] = [];
+    const errors: Array<Record<string, unknown>> = [];
+
+    for (const id of uniqueIds) {
+      const existing = get().workItems.find((w) => w.id === id);
+      if (!existing) {
+        skippedIds.push(id);
+        errors.push({ work_item_id: id, error: "Item not found" });
+        continue;
+      }
+      if (basePayload.action === "approve" && !getAcceptActionState(existing).visible) {
+        skippedIds.push(id);
+        errors.push({ work_item_id: id, error: "No machine or rescue text" });
+        continue;
+      }
+      try {
+        await get().resolveWorkItem(id, {
+          action: basePayload.action,
+          note: basePayload.note,
+          correction: basePayload.correction,
+          reason_code: basePayload.reason_code,
+          assignee: basePayload.assignee,
+          actor: basePayload.actor,
+          no_evidence_attestation: basePayload.no_evidence_attestation,
+        });
+        const latestItem = get().workItems.find((w) => w.id === id);
+        if (latestItem) updatedItems.push(latestItem);
+      } catch (err) {
+        skippedIds.push(id);
+        errors.push({
+          work_item_id: id,
+          error: err instanceof Error ? err.message : "Resolve failed",
+        });
+      }
+    }
+
+    const updatedIds = updatedItems.map((i) => i.id);
+    if (updatedIds.length > 0) {
+      set((s) => ({
+        workItemUndoSnapshots: { ...s.workItemUndoSnapshots, ...preSnapshots },
+        undoToast: {
+          workItemId: updatedIds[0],
+          workItemIds: updatedIds,
+          label: `${updatedIds.length} item${updatedIds.length === 1 ? "" : "s"}`,
+          action: actionToastLabel,
+          isBulk: updatedIds.length > 1,
+        },
+        notice: `Batch resolved ${updatedIds.length} item(s)${
+          skippedIds.length > 0 ? ` (${skippedIds.length} skipped)` : ""
+        }.`,
+      }));
+    }
+
+    return {
+      updated_count: updatedItems.length,
+      skipped_ids: skippedIds,
+      items: updatedItems,
+      errors,
+    };
   },
 
   appendEvent: (event) => {

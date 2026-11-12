@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +15,14 @@ from bert.verification.metrics import compute_work_item_metrics
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
+
+
+def _naive_utc(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.min
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 def synthesize_verified_output(facts: list[ExtractedFact], gate: VerificationResult) -> str:
@@ -98,7 +107,7 @@ def build_executive_summary(
             item for item in filtered_items if _enum_value(item.priority_tier) == PriorityTier.P0_CRITICAL.value
         ]
 
-    filtered_items.sort(key=lambda item: (-int(item.priority_score), item.created_at))
+    filtered_items.sort(key=lambda item: (-int(item.priority_score), _naive_utc(item.created_at)))
 
     metrics = compute_work_item_metrics(filtered_items)
     total = metrics["total"]

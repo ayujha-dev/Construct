@@ -31,6 +31,8 @@ from bert.agents.pipeline import (
 from bert.api.schemas import (
     ASTNodeResponse,
     AuditResponse,
+    BatchResolveRequest,
+    BatchResolveResponse,
     CitationMatch,
     CopilotChatRequest,
     CopilotChatResponse,
@@ -133,6 +135,9 @@ async def startup() -> None:
             "weak_evidence": "ALTER TABLE work_items ADD COLUMN weak_evidence BOOLEAN DEFAULT 0",
             "weak_evidence_reason": "ALTER TABLE work_items ADD COLUMN weak_evidence_reason TEXT",
             "evidence_quality": "ALTER TABLE work_items ADD COLUMN evidence_quality VARCHAR(20) DEFAULT 'missing'",
+            "machine_extracted_text": "ALTER TABLE work_items ADD COLUMN machine_extracted_text TEXT",
+            "vision_rescue_text": "ALTER TABLE work_items ADD COLUMN vision_rescue_text TEXT",
+            "has_vision_rescue": "ALTER TABLE work_items ADD COLUMN has_vision_rescue BOOLEAN DEFAULT 0",
             "temporal_conflict": "ALTER TABLE work_items ADD COLUMN temporal_conflict JSON",
         }
         for col_name, ddl in work_item_migrations.items():
@@ -622,21 +627,34 @@ async def resume_job(job_id: UUID, request: JobResumeRequest) -> dict[str, Any]:
 
 
 @app.get("/api/v1/escalations", response_model=list[EscalationResponse])
-async def escalations() -> list[EscalationResponse]:
-    async with SessionFactory() as session:
-        result = await session.execute(
-            select(WorkItem)
-            .where(
-                WorkItem.verification_status.in_(
-                    [
-                        VerificationStatus.NEEDS_HUMAN_VERIFICATION,
-                        VerificationStatus.INSUFFICIENT_EVIDENCE,
-                        VerificationStatus.ESCALATED_LEGAL,
-                    ]
-                )
-            )
-            .order_by(WorkItem.priority_score.desc(), WorkItem.created_at)
+async def escalations(
+    include_resolved: bool = False,
+    document_id: str | None = None,
+) -> list[EscalationResponse]:
+    parsed_doc_id = _parse_optional_uuid(document_id)
+    statuses = [
+        VerificationStatus.NEEDS_HUMAN_VERIFICATION,
+        VerificationStatus.INSUFFICIENT_EVIDENCE,
+        VerificationStatus.ESCALATED_LEGAL,
+    ]
+    if include_resolved:
+        statuses.extend(
+            [
+                VerificationStatus.HUMAN_OVERRIDE,
+                VerificationStatus.NOT_APPLICABLE,
+                VerificationStatus.VERIFIED,
+            ]
         )
+
+    async with SessionFactory() as session:
+        query = (
+            select(WorkItem)
+            .where(WorkItem.verification_status.in_(statuses))
+            .order_by(WorkItem.priority_score.desc(), WorkItem.created_at.asc())
+        )
+        if parsed_doc_id is not None:
+            query = query.where(WorkItem.document_id == parsed_doc_id)
+        result = await session.execute(query)
         items = list(result.scalars().all())
         return [
             EscalationResponse(
@@ -659,6 +677,11 @@ async def escalations() -> list[EscalationResponse]:
                 weak_evidence=bool(item.weak_evidence),
                 weak_evidence_reason=item.weak_evidence_reason,
                 evidence_quality=item.evidence_quality or "missing",
+                machine_extracted_text=item.machine_extracted_text,
+                vision_rescue_text=item.vision_rescue_text,
+                has_vision_rescue=bool(
+                    item.has_vision_rescue or (item.vision_rescue_text and item.vision_rescue_text.strip())
+                ),
                 temporal_conflict=item.temporal_conflict,
                 gate_telemetry=item.gate_telemetry or {},
                 can_undo=item.can_undo,
@@ -668,6 +691,278 @@ async def escalations() -> list[EscalationResponse]:
         ]
 
 
+def _apply_resolution_to_item(
+    session: AsyncSession,
+    item: WorkItem,
+    request: EscalationActionRequest,
+) -> None:
+    if request.action == "undo":
+        _apply_undo_mutations(
+            session,
+            item,
+            actor=request.actor,
+            note=request.note,
+        )
+        return
+
+    snapshot = _snapshot_work_item(item)
+    actor = (
+        (request.actor or "").strip()
+        or str((request.manual_payload or {}).get("actor") or (request.manual_payload or {}).get("approver_id") or "").strip()
+        or "Compliance Reviewer"
+    )
+    assignee = (
+        (request.assignee or "").strip()
+        or str((request.manual_payload or {}).get("assignee") or "").strip()
+        or None
+    )
+    reason_code = (request.reason_code or "").strip()
+    note_text = (request.note or "").strip()
+    if reason_code and note_text and reason_code != note_text:
+        reason: str | None = f"{reason_code}: {note_text}"
+    else:
+        reason = reason_code or note_text or None
+    now = utc_now()
+
+    override_locator_dict = request.override_locator.model_dump() if request.override_locator is not None else None
+    override_citation_text = (request.override_citation_text or "").strip()
+    audit_action = f"ESCALATION_{request.action.upper()}"
+    audit_metadata_extra: dict[str, Any] = {}
+
+    if request.action == "manual_correction":
+        if not reason_code:
+            raise HTTPException(status_code=422, detail="A non-empty reason_code is required for manual_correction")
+        correction = (request.correction or "").strip()
+        words = [word for word in correction.split() if word]
+        if len(correction) < 12 or len(words) < 3:
+            raise HTTPException(
+                status_code=422,
+                detail="Manual correction must be at least 12 characters and 3 words",
+            )
+        has_existing_locator = bool(item.override_locator) or any(
+            bool((cit or {}).get("locator")) for cit in (item.verified_citations or [])
+        )
+        has_evidence_support = bool(override_locator_dict or override_citation_text or has_existing_locator)
+        if not has_evidence_support and not request.no_evidence_attestation:
+            raise HTTPException(
+                status_code=422,
+                detail="Manual correction requires override_locator, override_citation_text, an existing locator, or no_evidence_attestation=True",
+            )
+
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.fluent_output = correction
+        item.verification_status = VerificationStatus.HUMAN_OVERRIDE
+        # Preserve original priority_tier and priority_score on manual override.
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        item.human_override_reason_code = reason_code
+        item.no_evidence_attestation = bool(request.no_evidence_attestation)
+        if override_locator_dict is not None:
+            item.override_locator = override_locator_dict
+        item.escalation_reason = reason or item.escalation_reason
+        item.escalated_by = actor
+        item.escalated_at = now
+        telemetry = dict(item.gate_telemetry or {})
+        if "citation_match" not in telemetry:
+            telemetry["citation_match"] = 0.0
+        if "critical_logprob" not in telemetry:
+            telemetry["critical_logprob"] = 0.0
+        telemetry["manual_override"] = True
+        if override_citation_text:
+            telemetry["override_citation_text"] = override_citation_text
+        item.gate_telemetry = telemetry
+    elif request.action == "retry":
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        item.fluent_output = "Deep vision retry requested — awaiting a fresh source pass."
+        item.escalation_reason = reason or "Deep vision retry requested."
+        item.escalated_by = actor
+        item.escalated_at = now
+    elif request.action == "counsel":
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        # Preserve original priority_tier and priority_score for legal counsel escalation.
+        item.verification_status = VerificationStatus.ESCALATED_LEGAL
+        item.human_override_reason_code = reason_code or item.human_override_reason_code
+        item.escalation_reason = reason or (request.correction or "").strip() or "Referred to legal counsel for review."
+        item.escalation_assignee = assignee or "Legal Counsel"
+        item.escalated_at = now
+        item.escalated_by = actor
+        item.fluent_output = f"Escalated to {item.escalation_assignee}: {item.escalation_reason}"
+    elif request.action == "approve":
+        rescue_text = (item.vision_rescue_text or "").strip()
+        machine_text = (item.machine_extracted_text or "").strip()
+        if machine_text == INSUFFICIENT_EVIDENCE_OUTPUT:
+            machine_text = ""
+        if not rescue_text and not machine_text:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot approve item without machine_extracted_text or vision_rescue_text",
+            )
+
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.VERIFIED
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        correction = (request.correction or "").strip()
+        if rescue_text:
+            item.fluent_output = correction or rescue_text
+            audit_action = "ACCEPT_VISION_RESCUE"
+            audit_metadata_extra = {
+                "vision_rescue_adopted": True,
+                "vision_rescue_text": rescue_text,
+            }
+        else:
+            if correction:
+                item.fluent_output = correction
+            elif item.fluent_output == INSUFFICIENT_EVIDENCE_OUTPUT or "human verification" in item.fluent_output.lower():
+                item.fluent_output = machine_text
+            audit_metadata_extra = {"machine_extracted_adopted": True}
+        item.escalation_reason = reason or item.escalation_reason
+        item.escalated_by = actor
+        item.escalated_at = now
+    else:  # "skip" or "not_applicable"
+        if not note_text and not reason_code:
+            raise HTTPException(
+                status_code=422,
+                detail="A non-empty note or reason_code is required to mark an item not applicable",
+            )
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.NOT_APPLICABLE
+        # MUST NOT mutate priority_tier or priority_score for N/A resolution.
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        item.human_override_reason_code = reason_code or item.human_override_reason_code
+        item.fluent_output = note_text or f"Marked not applicable ({reason_code})"
+        item.escalation_reason = reason
+        item.escalated_by = actor
+        item.escalated_at = now
+
+    session.add(
+        AuditLog(
+            document_id=item.document_id,
+            work_item_id=item.id,
+            agent_name="Human Review",
+            action=audit_action,
+            input_hash=payload_hash(request.model_dump()),
+            output_hash=payload_hash(
+                {
+                    "status": _enum_value(item.verification_status),
+                    "priority_tier": _enum_value(item.priority_tier),
+                    "output": item.fluent_output,
+                    "assignee": item.escalation_assignee,
+                    "reason": item.escalation_reason,
+                    "reason_code": item.human_override_reason_code,
+                    "no_evidence_attestation": item.no_evidence_attestation,
+                }
+            ),
+            model_name="human-review-console",
+            processing_time_ms=1,
+            metadata_json={
+                "action": request.action,
+                "actor": actor,
+                "when": now.isoformat(),
+                "reason": item.escalation_reason,
+                "reason_code": reason_code or request.reason_code,
+                "no_evidence_attestation": bool(request.no_evidence_attestation),
+                "override_locator": override_locator_dict,
+                "override_citation_text": override_citation_text or None,
+                "assignee": item.escalation_assignee,
+                "original_priority_tier": item.original_priority_tier,
+                "manual_payload": request.manual_payload,
+                **audit_metadata_extra,
+            },
+        )
+    )
+
+
+@app.post("/api/v1/escalations/batch-resolve", response_model=BatchResolveResponse)
+async def batch_resolve_escalations(request: BatchResolveRequest) -> BatchResolveResponse:
+    unique_ids: list[UUID] = []
+    seen_ids: set[UUID] = set()
+    for wid in request.work_item_ids:
+        if wid not in seen_ids:
+            seen_ids.add(wid)
+            unique_ids.append(wid)
+
+    single_request = EscalationActionRequest(
+        action=request.action,
+        note=request.note,
+        correction=request.correction,
+        manual_payload=request.manual_payload,
+        assignee=request.assignee,
+        actor=request.actor,
+        reason_code=request.reason_code,
+        no_evidence_attestation=request.no_evidence_attestation,
+        override_locator=request.override_locator,
+        override_citation_text=request.override_citation_text,
+    )
+
+    updated_items: list[WorkItem] = []
+    skipped_ids: list[UUID] = []
+    errors: list[dict[str, Any]] = []
+    summary_record: ExecutiveSummaryRecord | None = None
+
+    async with SessionFactory() as session:
+        for wid in unique_ids:
+            item = await session.get(WorkItem, wid)
+            if item is None:
+                skipped_ids.append(wid)
+                errors.append(
+                    {
+                        "work_item_id": str(wid),
+                        "status_code": 404,
+                        "detail": "Escalation not found",
+                    }
+                )
+                continue
+            try:
+                _apply_resolution_to_item(session, item, single_request)
+                updated_items.append(item)
+            except HTTPException as exc:
+                skipped_ids.append(wid)
+                errors.append(
+                    {
+                        "work_item_id": str(wid),
+                        "status_code": exc.status_code,
+                        "detail": str(exc.detail),
+                    }
+                )
+
+        if updated_items:
+            summary_record = await _invalidate_and_regenerate_summary(
+                session,
+                workspace_id=updated_items[0].workspace_id,
+            )
+            await session.commit()
+            for item in updated_items:
+                await session.refresh(item)
+
+    for item in updated_items:
+        await manager.sink.publish(
+            {
+                "type": "work_item",
+                "id": str(item.id),
+                "status": _enum_value(item.verification_status),
+            }
+        )
+    if summary_record is not None:
+        await manager.sink.publish(summary_ws_payload(summary_record))
+
+    return BatchResolveResponse(
+        updated_count=len(updated_items),
+        skipped_ids=skipped_ids,
+        items=updated_items,
+        errors=errors,
+    )
+
+
 @app.post("/api/v1/escalations/{work_item_id}/resolve", response_model=WorkItemResponse)
 async def resolve_escalation(work_item_id: UUID, request: EscalationActionRequest) -> WorkItem:
     async with SessionFactory() as session:
@@ -675,162 +970,7 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
         if item is None:
             raise HTTPException(status_code=404, detail="Escalation not found")
 
-        if request.action == "undo":
-            return await _apply_work_item_undo(
-                session,
-                item,
-                actor=request.actor,
-                note=request.note,
-            )
-
-        snapshot = _snapshot_work_item(item)
-        actor = (
-            (request.actor or "").strip()
-            or str((request.manual_payload or {}).get("actor") or (request.manual_payload or {}).get("approver_id") or "").strip()
-            or "Compliance Reviewer"
-        )
-        assignee = (
-            (request.assignee or "").strip()
-            or str((request.manual_payload or {}).get("assignee") or "").strip()
-            or None
-        )
-        reason_code = (request.reason_code or "").strip()
-        note_text = (request.note or "").strip()
-        if reason_code and note_text and reason_code != note_text:
-            reason: str | None = f"{reason_code}: {note_text}"
-        else:
-            reason = reason_code or note_text or None
-        now = utc_now()
-
-        if item.original_priority_tier is None:
-            item.original_priority_tier = _enum_value(item.priority_tier)
-
-        override_locator_dict = request.override_locator.model_dump() if request.override_locator is not None else None
-        override_citation_text = (request.override_citation_text or "").strip()
-
-        if request.action == "manual_correction":
-            if not reason_code:
-                raise HTTPException(status_code=422, detail="A non-empty reason_code is required for manual_correction")
-            correction = (request.correction or "").strip()
-            words = [word for word in correction.split() if word]
-            if len(correction) < 12 or len(words) < 3:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Manual correction must be at least 12 characters and 3 words",
-                )
-            has_existing_locator = bool(item.override_locator) or any(
-                bool((cit or {}).get("locator")) for cit in (item.verified_citations or [])
-            )
-            has_evidence_support = bool(override_locator_dict or override_citation_text or has_existing_locator)
-            if not has_evidence_support and not request.no_evidence_attestation:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Manual correction requires override_locator, override_citation_text, an existing locator, or no_evidence_attestation=True",
-                )
-
-            item.previous_state_snapshot = snapshot
-            item.fluent_output = correction
-            item.verification_status = VerificationStatus.HUMAN_OVERRIDE
-            # Preserve original priority_tier and priority_score on manual override.
-            item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
-            item.human_override_reason_code = reason_code
-            item.no_evidence_attestation = bool(request.no_evidence_attestation)
-            if override_locator_dict is not None:
-                item.override_locator = override_locator_dict
-            item.escalation_reason = reason or item.escalation_reason
-            item.escalated_by = actor
-            item.escalated_at = now
-            telemetry = dict(item.gate_telemetry or {})
-            if "citation_match" not in telemetry:
-                telemetry["citation_match"] = 0.0
-            if "critical_logprob" not in telemetry:
-                telemetry["critical_logprob"] = 0.0
-            telemetry["manual_override"] = True
-            if override_citation_text:
-                telemetry["override_citation_text"] = override_citation_text
-            item.gate_telemetry = telemetry
-        elif request.action == "retry":
-            item.previous_state_snapshot = snapshot
-            item.verification_status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
-            item.fluent_output = "Deep vision retry requested — awaiting a fresh source pass."
-            item.escalation_reason = reason or "Deep vision retry requested."
-            item.escalated_by = actor
-            item.escalated_at = now
-        elif request.action == "counsel":
-            item.previous_state_snapshot = snapshot
-            # Preserve original priority_tier and priority_score for legal counsel escalation.
-            item.verification_status = VerificationStatus.ESCALATED_LEGAL
-            item.human_override_reason_code = reason_code or item.human_override_reason_code
-            item.escalation_reason = reason or (request.correction or "").strip() or "Referred to legal counsel for review."
-            item.escalation_assignee = assignee or "Legal Counsel"
-            item.escalated_at = now
-            item.escalated_by = actor
-            item.fluent_output = f"Escalated to {item.escalation_assignee}: {item.escalation_reason}"
-        elif request.action == "approve":
-            item.previous_state_snapshot = snapshot
-            item.verification_status = VerificationStatus.VERIFIED
-            item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
-            correction = (request.correction or "").strip()
-            if correction:
-                item.fluent_output = correction
-            elif item.fluent_output == INSUFFICIENT_EVIDENCE_OUTPUT or "human verification" in item.fluent_output.lower():
-                facts = item.structured_facts or []
-                fact_quote = str(facts[0].get("verbatim_quote", "")).strip() if facts else ""
-                item.fluent_output = f"Reviewer approved extracted evidence: {fact_quote}" if fact_quote else "Reviewer approved finding."
-            item.escalation_reason = reason or item.escalation_reason
-            item.escalated_by = actor
-            item.escalated_at = now
-        else:  # "skip" or "not_applicable"
-            if not note_text and not reason_code:
-                raise HTTPException(
-                    status_code=422,
-                    detail="A non-empty note or reason_code is required to mark an item not applicable",
-                )
-            item.previous_state_snapshot = snapshot
-            item.verification_status = VerificationStatus.NOT_APPLICABLE
-            # MUST NOT mutate priority_tier or priority_score for N/A resolution.
-            item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
-            item.human_override_reason_code = reason_code or item.human_override_reason_code
-            item.fluent_output = note_text or f"Marked not applicable ({reason_code})"
-            item.escalation_reason = reason
-            item.escalated_by = actor
-            item.escalated_at = now
-
-        session.add(
-            AuditLog(
-                document_id=item.document_id,
-                work_item_id=item.id,
-                agent_name="Human Review",
-                action=f"ESCALATION_{request.action.upper()}",
-                input_hash=payload_hash(request.model_dump()),
-                output_hash=payload_hash(
-                    {
-                        "status": _enum_value(item.verification_status),
-                        "priority_tier": _enum_value(item.priority_tier),
-                        "output": item.fluent_output,
-                        "assignee": item.escalation_assignee,
-                        "reason": item.escalation_reason,
-                        "reason_code": item.human_override_reason_code,
-                        "no_evidence_attestation": item.no_evidence_attestation,
-                    }
-                ),
-                model_name="human-review-console",
-                processing_time_ms=1,
-                metadata_json={
-                    "action": request.action,
-                    "actor": actor,
-                    "when": now.isoformat(),
-                    "reason": item.escalation_reason,
-                    "reason_code": reason_code or request.reason_code,
-                    "no_evidence_attestation": bool(request.no_evidence_attestation),
-                    "override_locator": override_locator_dict,
-                    "override_citation_text": override_citation_text or None,
-                    "assignee": item.escalation_assignee,
-                    "original_priority_tier": item.original_priority_tier,
-                    "manual_payload": request.manual_payload,
-                },
-            )
-        )
+        _apply_resolution_to_item(session, item, request)
         summary_record = await _invalidate_and_regenerate_summary(session, workspace_id=item.workspace_id)
         await session.commit()
         await session.refresh(item)
@@ -1160,17 +1300,20 @@ def _snapshot_work_item(item: WorkItem) -> dict[str, Any]:
         "weak_evidence": bool(item.weak_evidence),
         "weak_evidence_reason": item.weak_evidence_reason,
         "evidence_quality": item.evidence_quality,
+        "machine_extracted_text": item.machine_extracted_text,
+        "vision_rescue_text": item.vision_rescue_text,
+        "has_vision_rescue": bool(item.has_vision_rescue),
         "gate_telemetry": dict(item.gate_telemetry or {}),
     }
 
 
-async def _apply_work_item_undo(
+def _apply_undo_mutations(
     session: AsyncSession,
     item: WorkItem,
     *,
     actor: str | None = None,
     note: str | None = None,
-) -> WorkItem:
+) -> None:
     snap = item.previous_state_snapshot
     if not snap:
         raise HTTPException(status_code=409, detail="No previous state snapshot available to undo")
@@ -1196,6 +1339,12 @@ async def _apply_work_item_undo(
     item.weak_evidence = bool(snap.get("weak_evidence", False))
     item.weak_evidence_reason = snap.get("weak_evidence_reason")
     item.evidence_quality = str(snap.get("evidence_quality") or "missing")
+    if "machine_extracted_text" in snap:
+        item.machine_extracted_text = snap.get("machine_extracted_text")
+    if "vision_rescue_text" in snap:
+        item.vision_rescue_text = snap.get("vision_rescue_text")
+    if "has_vision_rescue" in snap:
+        item.has_vision_rescue = bool(snap.get("has_vision_rescue", False))
     if "gate_telemetry" in snap:
         item.gate_telemetry = dict(snap["gate_telemetry"] or {})
     item.previous_state_snapshot = None
@@ -1228,6 +1377,16 @@ async def _apply_work_item_undo(
             },
         )
     )
+
+
+async def _apply_work_item_undo(
+    session: AsyncSession,
+    item: WorkItem,
+    *,
+    actor: str | None = None,
+    note: str | None = None,
+) -> WorkItem:
+    _apply_undo_mutations(session, item, actor=actor, note=note)
     summary_record = await _invalidate_and_regenerate_summary(session, workspace_id=item.workspace_id)
     await session.commit()
     await session.refresh(item)

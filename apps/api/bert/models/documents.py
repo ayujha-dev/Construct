@@ -147,6 +147,9 @@ class WorkItem(Base):
     weak_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
     weak_evidence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_quality: Mapped[str] = mapped_column(String(20), default="missing")
+    machine_extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vision_rescue_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_vision_rescue: Mapped[bool] = mapped_column(Boolean, default=False)
     temporal_conflict: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 

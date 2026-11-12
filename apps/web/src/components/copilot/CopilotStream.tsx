@@ -19,9 +19,9 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   deriveNodeLocator,
   resolveCitationDocument,
@@ -31,6 +31,7 @@ import {
   formatHumanAgentSummary,
   parseTimestampMs,
 } from "../../lib/pipelineTelemetry";
+import { getAcceptActionState, sortTriageQueue } from "../../lib/triageQueue";
 import {
   getMatchBadgeTone,
   itemMatchesDocumentFilter,
@@ -40,6 +41,7 @@ import {
   validateNotApplicableInput,
 } from "../../lib/workItemMetrics";
 import { AGENTS, useBertStore } from "../../store/useBertStore";
+import { TriageToast } from "../triage/TriageToast";
 import { CorpusFilterBanner } from "./CorpusFilterBanner";
 import { EvidenceLocatorBadge } from "./EvidenceLocatorBadge";
 
@@ -56,8 +58,6 @@ export function CopilotStream() {
     selectedFileFilterId,
     summaryStatus,
     summaryError,
-    undoToast,
-    dismissUndoToast,
     pauseJob,
     resumeJob,
     askCopilot,
@@ -99,7 +99,7 @@ export function CopilotStream() {
     [documents, selectedFileFilterId]
   );
 
-  // Escalated & unresolved items filtered cleanly by sidebar selection, pending actions first
+  // Escalated & unresolved items filtered cleanly by sidebar selection, pending actions first & priority ordered
   const escalations = useMemo(() => {
     const filtered = workItems.filter((item) => {
       if (selectedFileFilterId && !itemMatchesDocumentFilter(item, selectedFileFilterId)) {
@@ -113,7 +113,8 @@ export function CopilotStream() {
       if (status === "HUMAN_OVERRIDE") return 2;
       return 3;
     };
-    return [...filtered].sort((a, b) => orderRank(a.verification_status) - orderRank(b.verification_status));
+    const prioritySorted = sortTriageQueue(filtered);
+    return [...prioritySorted].sort((a, b) => orderRank(a.verification_status) - orderRank(b.verification_status));
   }, [selectedFileFilterId, workItems]);
 
   const visibleChatMessages = useMemo(
@@ -275,40 +276,8 @@ export function CopilotStream() {
   return (
     <div className="flex-1 h-full overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 bg-[#F8F9FA] text-zinc-900">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Undo Toast Notification */}
-        {undoToast && (
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="undo-toast"
-            className="p-3 rounded-xl bg-[#18181B] text-white text-xs flex items-center justify-between gap-3 shadow-lg"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Scale size={14} className="text-amber-400 shrink-0" />
-              <span className="truncate">
-                {undoToast.action}: {undoToast.label}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => void undoWorkItem(undoToast.workItemId)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              >
-                <RotateCcw size={12} />
-                <span>Undo</span>
-              </button>
-              <button
-                type="button"
-                aria-label="Dismiss notification"
-                onClick={dismissUndoToast}
-                className="p-1 rounded hover:bg-zinc-800 text-zinc-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Shared Undo Toast Notification */}
+        <TriageToast />
 
         <CorpusFilterBanner />
 
@@ -562,9 +531,20 @@ export function CopilotStream() {
 
         {/* Live Stream & Human Escalation Cards */}
         <div role="status" aria-live="polite" className="space-y-4 pt-4 border-t border-zinc-200/80">
-          <div className="flex items-center justify-between text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
             <span>Agent Telemetry & Verification Stream</span>
-            <span>{visibleAgentRuns.length} Recorded Steps</span>
+            <div className="flex items-center gap-3">
+              {escalations.length > 0 && (
+                <Link
+                  to="/triage"
+                  data-testid="copilot-open-triage-link"
+                  className="text-[11px] font-sans normal-case tracking-normal font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                >
+                  Open in Triage Queue →
+                </Link>
+              )}
+              <span>{visibleAgentRuns.length} Recorded Steps</span>
+            </div>
           </div>
 
           {/* Human, Legal, Override & N/A Escalation Cards */}
@@ -584,6 +564,7 @@ export function CopilotStream() {
             const isNA = item.verification_status === "NOT_APPLICABLE";
             const displayPriority = item.original_priority_tier || item.priority_tier;
             const canUndo = Boolean(item.can_undo || workItemUndoSnapshots[item.id]);
+            const acceptState = getAcceptActionState(item);
             const matchTone = getMatchBadgeTone(
               item.gate_telemetry.citation_match,
               item.verification_status,
@@ -984,22 +965,30 @@ export function CopilotStream() {
                       }}
                       className="px-3 py-1.5 rounded-lg bg-white hover:bg-rose-50 border border-rose-300 text-rose-900 font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
-                      Type Manual Answer / Override
+                      Override
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void resolveWorkItem(
-                          item.id,
-                          "approve",
-                          "Accepted Vision Rescue transcription with OCR confidence flag."
-                        )
-                      }
-                      className="px-3 py-1.5 rounded-lg bg-[#047857] hover:bg-[#065F46] text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-                    >
-                      Accept Vision Rescue Text
-                    </button>
+                    {acceptState.visible && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void resolveWorkItem(
+                            item.id,
+                            "approve",
+                            acceptState.kind === "rescue"
+                              ? item.vision_rescue_text ||
+                                  item.structured_facts[0]?.verbatim_quote ||
+                                  "Accepted Vision Rescue transcription with OCR confidence flag."
+                              : item.machine_extracted_text ||
+                                  item.structured_facts[0]?.verbatim_quote ||
+                                  "Accepted verified machine-extracted evidence."
+                          )
+                        }
+                        className="px-3 py-1.5 rounded-lg bg-[#047857] hover:bg-[#065F46] text-white font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      >
+                        {acceptState.label}
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -1027,6 +1016,13 @@ export function CopilotStream() {
                     >
                       Flag for Legal
                     </button>
+
+                    <Link
+                      to={`/triage?item=${encodeURIComponent(item.id)}`}
+                      className="ml-auto text-[11px] font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1 py-1"
+                    >
+                      Open in Triage Queue →
+                    </Link>
                   </div>
                 )}
               </div>

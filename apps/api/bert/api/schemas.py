@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, Self, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PDFLocator(BaseModel):
@@ -110,9 +110,25 @@ class WorkItemResponse(BaseModel):
     weak_evidence: bool = False
     weak_evidence_reason: str | None = None
     evidence_quality: str = "missing"
+    machine_extracted_text: str | None = None
+    vision_rescue_text: str | None = None
+    has_vision_rescue: bool = False
     temporal_conflict: dict[str, Any] | None = None
     can_undo: bool = False
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _normalize_extracted_text_flags(self) -> Self:
+        if self.vision_rescue_text and self.vision_rescue_text.strip():
+            self.vision_rescue_text = self.vision_rescue_text.strip()
+            self.has_vision_rescue = True
+        else:
+            self.vision_rescue_text = None
+            self.has_vision_rescue = False
+        if self.machine_extracted_text is not None:
+            cleaned = self.machine_extracted_text.strip()
+            self.machine_extracted_text = cleaned or None
+        return self
 
 
 class DocumentResponse(BaseModel):
@@ -258,10 +274,26 @@ class EscalationResponse(BaseModel):
     weak_evidence: bool = False
     weak_evidence_reason: str | None = None
     evidence_quality: str = "missing"
+    machine_extracted_text: str | None = None
+    vision_rescue_text: str | None = None
+    has_vision_rescue: bool = False
     temporal_conflict: dict[str, Any] | None = None
     gate_telemetry: GateTelemetry = Field(default_factory=GateTelemetry)
     can_undo: bool = False
     verified_citations: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_extracted_text_flags(self) -> Self:
+        if self.vision_rescue_text and self.vision_rescue_text.strip():
+            self.vision_rescue_text = self.vision_rescue_text.strip()
+            self.has_vision_rescue = True
+        else:
+            self.vision_rescue_text = None
+            self.has_vision_rescue = False
+        if self.machine_extracted_text is not None:
+            cleaned = self.machine_extracted_text.strip()
+            self.machine_extracted_text = cleaned or None
+        return self
 
 
 class EscalationActionRequest(BaseModel):
@@ -275,6 +307,27 @@ class EscalationActionRequest(BaseModel):
     no_evidence_attestation: bool = False
     override_locator: EvidenceLocator | None = None
     override_citation_text: str | None = None
+
+
+class BatchResolveRequest(BaseModel):
+    work_item_ids: list[UUID]
+    action: Literal["manual_correction", "retry", "skip", "not_applicable", "approve", "counsel", "undo"]
+    correction: str | None = None
+    note: str | None = None
+    reason_code: str | None = None
+    assignee: str | None = None
+    actor: str | None = None
+    no_evidence_attestation: bool = False
+    manual_payload: dict[str, Any] | None = None
+    override_locator: EvidenceLocator | None = None
+    override_citation_text: str | None = None
+
+
+class BatchResolveResponse(BaseModel):
+    updated_count: int
+    skipped_ids: list[UUID]
+    items: list[WorkItemResponse]
+    errors: list[dict[str, Any]]
 
 
 class UndoRequest(BaseModel):

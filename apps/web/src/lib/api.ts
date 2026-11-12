@@ -1,6 +1,8 @@
 import type {
   ASTNode,
   AuditLogEntry,
+  BatchResolvePayload,
+  BatchResolveResponse,
   CopilotChatResponse,
   CorpusResetResponse,
   Document,
@@ -46,7 +48,23 @@ export const bertApi = {
     if (!response.ok) throw new Error((await response.text()) || `File request failed with ${response.status}`);
     return response.arrayBuffer();
   },
-  getEscalations: () => request<Escalation[]>("/api/v1/escalations"),
+  getEscalations: (params?: { includeResolved?: boolean; documentId?: string | null }) => {
+    const qs = new URLSearchParams();
+    if (params?.includeResolved) {
+      qs.set("include_resolved", "true");
+    }
+    if (params?.documentId && params.documentId !== "ALL") {
+      qs.set("document_id", params.documentId);
+    }
+    const query = qs.toString();
+    return request<Escalation[]>(`/api/v1/escalations${query ? `?${query}` : ""}`);
+  },
+  batchResolve: (payload: BatchResolvePayload) =>
+    request<BatchResolveResponse>("/api/v1/escalations/batch-resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   getAuditLog: () => request<AuditLogEntry[]>("/api/v1/audit-log"),
   askCopilot: (prompt: string, documentId?: string) =>
     request<CopilotChatResponse>("/api/v1/copilot/chat", {

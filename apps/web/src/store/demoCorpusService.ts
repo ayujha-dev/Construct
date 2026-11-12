@@ -541,6 +541,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "Access control requires multifactor authentication for privileged accounts across all production environments.",
       gate_telemetry: {
         citation_match: 100,
         critical_logprob: 0.99,
@@ -585,6 +589,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "Encryption at rest uses AES-256 and keys are rotated annually via automated KMS schedules.",
       gate_telemetry: {
         citation_match: 100,
         critical_logprob: 0.99,
@@ -628,6 +636,9 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER3_ARBITER",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text: '{"effect": "Allow", "action": "s3:*", "resource": "*"}',
       gate_telemetry: {
         citation_match: 99.4,
         critical_logprob: 0.97,
@@ -674,6 +685,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "NEEDS_HUMAN_VERIFICATION",
       resolved_by_tier: "SCOUT_VISION_RESCUE",
+      has_vision_rescue: true,
+      vision_rescue_text:
+        "STAMP NOTE: Compliance addendum reviewed 2026-02-14 — uncapped indemnification override for third-party security incidents.",
+      machine_extracted_text: null,
       gate_telemetry: {
         citation_match: 81.2,
         critical_logprob: 0.81,
@@ -698,6 +713,9 @@ export function buildDemoCorpus(): {
       verified_citations: [],
       verification_status: "INSUFFICIENT_EVIDENCE",
       resolved_by_tier: "GATE_FAIL_REJECTED",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text: null,
       gate_telemetry: {
         citation_match: 0,
         critical_logprob: 0,
@@ -776,6 +794,10 @@ export function buildDemoCorpus(): {
       },
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER3_ARBITER",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "Access control requires multifactor authentication for privileged accounts across all production environments.",
       gate_telemetry: {
         citation_match: 98.2,
         critical_logprob: 0.98,
@@ -823,6 +845,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "Audit logs are retained for 7 years in immutable WORM storage with daily cryptographic integrity validation.",
       gate_telemetry: {
         citation_match: 98.5,
         critical_logprob: 0.98,
@@ -868,6 +894,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "Target RTO is 4 hours and RPO is 1 hour across primary availability zones.",
       gate_telemetry: {
         citation_match: 98.9,
         critical_logprob: 0.98,
@@ -913,6 +943,10 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "VERIFIED",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text:
+        "EU customer data is localized to Frankfurt eu-central-1 with Standard Contractual Clauses.",
       gate_telemetry: {
         citation_match: 99.1,
         critical_logprob: 0.99,
@@ -957,6 +991,9 @@ export function buildDemoCorpus(): {
       ],
       verification_status: "NEEDS_HUMAN_VERIFICATION",
       resolved_by_tier: "TIER2_SLM_REGIMENT",
+      has_vision_rescue: false,
+      vision_rescue_text: null,
+      machine_extracted_text: "Section 4 Penetration Testing",
       weak_evidence: true,
       weak_evidence_reason:
         "Bare heading / insufficient quote specificity (4 words, 29 chars) — flagged for reviewer substantiation.",

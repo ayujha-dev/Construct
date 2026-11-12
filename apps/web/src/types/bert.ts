@@ -179,6 +179,9 @@ export interface WorkItem {
   evidence_quality?: "strong" | "weak" | "missing" | string;
   temporal_conflict?: TemporalConflict | null;
   can_undo?: boolean;
+  machine_extracted_text?: string | null;
+  vision_rescue_text?: string | null;
+  has_vision_rescue?: boolean;
 }
 
 export interface JobExecution {
@@ -326,6 +329,9 @@ export interface Escalation {
   gate_telemetry?: WorkItem["gate_telemetry"];
   can_undo?: boolean;
   verified_citations?: Citation[];
+  machine_extracted_text?: string | null;
+  vision_rescue_text?: string | null;
+  has_vision_rescue?: boolean;
 }
 
 export interface EscalationActionPayload {
@@ -339,6 +345,24 @@ export interface EscalationActionPayload {
   no_evidence_attestation?: boolean;
   override_locator?: EvidenceLocator | null;
   override_citation_text?: string | null;
+}
+
+export interface BatchResolvePayload {
+  work_item_ids: string[];
+  action: EscalationActionPayload["action"];
+  note?: string;
+  correction?: string;
+  reason_code?: string;
+  assignee?: string;
+  actor?: string;
+  no_evidence_attestation?: boolean;
+}
+
+export interface BatchResolveResponse {
+  updated_count: number;
+  skipped_ids: string[];
+  items: WorkItem[];
+  errors: Array<Record<string, unknown>>;
 }
 
 export interface ExecutiveSummaryFinding {

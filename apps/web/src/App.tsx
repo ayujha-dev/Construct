@@ -4,6 +4,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { LandingPage } from "./pages/LandingPage";
 import { ResultsPage } from "./pages/ResultsPage";
+import { TriagePage } from "./pages/TriagePage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { registerWorkspaceNavigator, useBertStore } from "./store/useBertStore";
 
@@ -230,6 +231,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/triage" element={<TriagePage />} />
         <Route path="/results" element={<ResultsPage />} />
         <Route path="/files" element={<Navigate to="/workspace" replace />} />
         <Route path="/copilot" element={<Navigate to="/workspace" replace />} />

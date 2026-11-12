@@ -11,17 +11,19 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   deriveNodeLocator,
   resolveCitationDocument,
 } from "../../lib/evidenceLocators";
+import { getAcceptActionState, sortTriageQueue } from "../../lib/triageQueue";
 import {
   computeWorkItemMetrics,
   getMatchBadgeTone,
   itemMatchesDocumentFilter,
 } from "../../lib/workItemMetrics";
 import { useBertStore } from "../../store/useBertStore";
+import { TriageToast } from "../triage/TriageToast";
 import { CorpusFilterBanner } from "./CorpusFilterBanner";
 import { EvidenceLocatorBadge } from "./EvidenceLocatorBadge";
 
@@ -84,11 +86,13 @@ export function BentoCanvas() {
 
   const pendingQueueItems = useMemo(
     () =>
-      scopedWorkItems.filter(
-        (i) =>
-          i.verification_status !== "VERIFIED" &&
-          i.verification_status !== "HUMAN_OVERRIDE" &&
-          i.verification_status !== "NOT_APPLICABLE"
+      sortTriageQueue(
+        scopedWorkItems.filter(
+          (i) =>
+            i.verification_status !== "VERIFIED" &&
+            i.verification_status !== "HUMAN_OVERRIDE" &&
+            i.verification_status !== "NOT_APPLICABLE"
+        )
       ),
     [scopedWorkItems]
   );
@@ -133,6 +137,7 @@ export function BentoCanvas() {
   return (
     <div className="relative flex-1 h-full overflow-y-auto p-4 sm:p-6 lg:p-8 dot-grid-pattern bg-[#FAFAFA] text-zinc-900">
       <div className="max-w-5xl mx-auto space-y-6 pb-28">
+        <TriageToast />
         <CorpusFilterBanner />
 
         {/* Top Canvas Header */}
@@ -409,9 +414,26 @@ export function BentoCanvas() {
                     </span>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded-full bg-[#B45309] text-white text-[10px] font-bold font-mono">
-                  {pendingQueueItems.length} Open
-                </span>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/triage"
+                    data-testid="bento-open-triage-link"
+                    className="text-[11px] font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                  >
+                    Triage Queue →
+                  </Link>
+                  <Link
+                    to={`/workspace?workspace=${encodeURIComponent(workspaceId || "default")}${
+                      selectedFileFilterId ? `&file=${encodeURIComponent(selectedFileFilterId)}` : ""
+                    }`}
+                    className="text-[11px] font-semibold text-zinc-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                  >
+                    Copilot →
+                  </Link>
+                  <span className="px-2 py-0.5 rounded-full bg-[#B45309] text-white text-[10px] font-bold font-mono">
+                    {pendingQueueItems.length} Open
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
@@ -423,6 +445,7 @@ export function BentoCanvas() {
                   pendingQueueItems.map((item) => {
                     const isLegal = item.verification_status === "ESCALATED_LEGAL";
                     const canUndo = Boolean(item.can_undo || workItemUndoSnapshots[item.id]);
+                    const acceptState = getAcceptActionState(item);
                     return (
                       <div
                         key={`queue-${item.id}`}
@@ -430,15 +453,20 @@ export function BentoCanvas() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-semibold text-zinc-900">{item.prompt_or_question}</span>
-                          <span
-                            className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold shrink-0 ${
-                              isLegal
-                                ? "bg-amber-100 text-amber-950 border border-amber-300"
-                                : "bg-rose-50 text-rose-800 border border-rose-200"
-                            }`}
-                          >
-                            {item.verification_status}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-200 font-bold">
+                              {item.priority_tier}
+                            </span>
+                            <span
+                              className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold shrink-0 ${
+                                isLegal
+                                  ? "bg-amber-100 text-amber-950 border border-amber-300"
+                                  : "bg-rose-50 text-rose-800 border border-rose-200"
+                              }`}
+                            >
+                              {item.verification_status}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-zinc-700 font-serif italic text-xs leading-relaxed">
                           {item.fluent_output}
@@ -463,18 +491,23 @@ export function BentoCanvas() {
                             </>
                           ) : (
                             <>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void resolveWorkItem(item.id, {
-                                    action: "approve",
-                                    correction: item.fluent_output,
-                                  })
-                                }
-                                className="px-2.5 py-1 rounded-md bg-[#047857] hover:bg-[#065F46] text-white font-medium text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-                              >
-                                Approve Finding
-                              </button>
+                              {acceptState.visible && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void resolveWorkItem(
+                                      item.id,
+                                      "approve",
+                                      acceptState.kind === "rescue"
+                                        ? item.vision_rescue_text || item.fluent_output
+                                        : item.machine_extracted_text || item.fluent_output
+                                    )
+                                  }
+                                  className="px-2.5 py-1 rounded-md bg-[#047857] hover:bg-[#065F46] text-white font-medium text-[11px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                >
+                                  {acceptState.label}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() =>
@@ -488,6 +521,12 @@ export function BentoCanvas() {
                               >
                                 Flag for Legal
                               </button>
+                              <Link
+                                to={`/triage?item=${encodeURIComponent(item.id)}`}
+                                className="ml-auto text-[11px] font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                              >
+                                Open in Triage Queue →
+                              </Link>
                             </>
                           )}
                         </div>

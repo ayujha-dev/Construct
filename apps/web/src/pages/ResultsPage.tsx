@@ -12,14 +12,16 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { EvidenceLocatorBadge } from "../components/copilot/EvidenceLocatorBadge";
+import { TriageToast } from "../components/triage/TriageToast";
 import { bertApi } from "../lib/api";
 import {
   deriveNodeLocator,
   resolveCitationDocument,
 } from "../lib/evidenceLocators";
+import { getAcceptActionState, sortTriageQueue } from "../lib/triageQueue";
 import {
   buildXlsxExportRows,
   computeWorkItemMetrics,
@@ -61,8 +63,6 @@ export function ResultsPage() {
     summaryStatus,
     summaryError,
     auditLogs,
-    undoToast,
-    dismissUndoToast,
     loadSummary,
     generateSummary,
     loadAuditLogs,
@@ -78,7 +78,8 @@ export function ResultsPage() {
   const [metricType, setMetricType] = useState<"count" | "confidence">("count");
   const [groupedBy, setGroupedBy] = useState<"documents" | "categories">("documents");
   const [segmentedBy, setSegmentedBy] = useState<"caution" | "category">("category");
-  const [onlyCritical, setOnlyCritical] = useState(initialEscalationsFilter);
+  const [onlyCritical, setOnlyCritical] = useState(false);
+  const [onlyEscalations, setOnlyEscalations] = useState(initialEscalationsFilter);
   const [showExactQuotes, setShowExactQuotes] = useState(true);
   const [enforceLatestVersion, setEnforceLatestVersion] = useState(true);
   const [searchFilter, setSearchFilter] = useState("");
@@ -110,9 +111,7 @@ export function ResultsPage() {
         : "Export answered questionnaire as .XLSX";
 
   useEffect(() => {
-    if (searchParams.get("filter") === "escalations") {
-      setOnlyCritical(true);
-    }
+    setOnlyEscalations(searchParams.get("filter") === "escalations");
   }, [searchParams]);
 
   // Fetch / compute dynamic Envoy Executive Summary whenever filters change
@@ -131,13 +130,16 @@ export function ResultsPage() {
 
   // Filtered dataset using single-source-of-truth scope filter
   const filteredItems = useMemo(() => {
-    const scoped = filterWorkItemsForScope({
+    let scoped = filterWorkItemsForScope({
       items: workItems,
       documents,
       documentId: selectedDocFilter === "ALL" ? null : selectedDocFilter,
       onlyCritical,
       latestOnly: enforceLatestVersion,
     });
+    if (onlyEscalations) {
+      scoped = sortTriageQueue(scoped.filter((item) => item.verification_status !== "VERIFIED"));
+    }
     if (!searchFilter.trim()) return scoped;
     const q = searchFilter.toLowerCase();
     return scoped.filter((item) => {
@@ -145,13 +147,16 @@ export function ResultsPage() {
         `${item.prompt_or_question} ${item.fluent_output} ${item.category} ${item.verification_status} ${item.escalation_reason ?? ""} ${item.escalation_assignee ?? ""} ${item.human_override_reason_code ?? ""}`.toLowerCase();
       return text.includes(q);
     });
-  }, [workItems, documents, selectedDocFilter, onlyCritical, enforceLatestVersion, searchFilter]);
+  }, [workItems, documents, selectedDocFilter, onlyCritical, onlyEscalations, enforceLatestVersion, searchFilter]);
 
   const metrics = useMemo(() => computeWorkItemMetrics(filteredItems), [filteredItems]);
   const corpusMetrics = useMemo(() => computeWorkItemMetrics(workItems), [workItems]);
   const exportTargetMetrics = useMemo(
-    () => (selectedDocFilter === "ALL" && !onlyCritical && !searchFilter.trim() ? corpusMetrics : metrics),
-    [selectedDocFilter, onlyCritical, searchFilter, corpusMetrics, metrics]
+    () =>
+      selectedDocFilter === "ALL" && !onlyCritical && !onlyEscalations && !searchFilter.trim()
+        ? corpusMetrics
+        : metrics,
+    [selectedDocFilter, onlyCritical, onlyEscalations, searchFilter, corpusMetrics, metrics]
   );
   const exportWarningLines = useMemo(
     () => formatExportWarningLines(exportTargetMetrics),
@@ -270,6 +275,7 @@ export function ResultsPage() {
       backendAvailable &&
       selectedDocFilter === "ALL" &&
       !onlyCritical &&
+      !onlyEscalations &&
       !searchFilter.trim();
 
     if (useBackendDownload) {
@@ -482,6 +488,7 @@ export function ResultsPage() {
             onClick={() => {
               setSelectedDocFilter("ALL");
               setOnlyCritical(false);
+              setOnlyEscalations(false);
               setSearchFilter("");
               setInlineEditId(null);
               setInlineError(null);
@@ -528,38 +535,24 @@ export function ResultsPage() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 2. Center Analytics & Findings Stage */}
         <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto bg-white space-y-6">
-          {/* Undo Toast */}
-          {undoToast && (
+          {/* Shared Undo Toast */}
+          <TriageToast />
+
+          {onlyEscalations && (
             <div
-              role="status"
-              aria-live="polite"
-              data-testid="results-undo-toast"
-              className="p-3 rounded-xl bg-[#18181B] text-white text-xs flex items-center justify-between gap-3 shadow-md"
+              data-testid="results-escalations-banner"
+              className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 text-xs flex flex-wrap items-center justify-between gap-2"
             >
-              <span className="flex items-center gap-2 min-w-0 truncate">
-                <Scale size={14} className="text-amber-400 shrink-0" />
-                <span className="truncate">
-                  {undoToast.action}: {undoToast.label}
-                </span>
+              <span className="font-semibold">
+                Showing Escalations & Unresolved Items (sorted P0 Critical → P3 Low)
               </span>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => void undoWorkItem(undoToast.workItemId)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                >
-                  <RotateCcw size={12} />
-                  <span>Undo</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label="Dismiss toast"
-                  onClick={dismissUndoToast}
-                  className="p-1 rounded hover:bg-zinc-800 text-zinc-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                >
-                  <X size={13} />
-                </button>
-              </div>
+              <Link
+                to="/triage"
+                data-testid="results-open-triage-link"
+                className="font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+              >
+                Open in Triage Queue →
+              </Link>
             </div>
           )}
 
@@ -889,16 +882,24 @@ export function ResultsPage() {
                     </span>
                   </div>
 
-                  <div className="relative">
-                    <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-600" />
-                    <input
-                      type="text"
-                      aria-label="Filter findings table"
-                      placeholder="Filter findings..."
-                      value={searchFilter}
-                      onChange={(e) => setSearchFilter(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-900 placeholder:text-zinc-600 focus:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 transition-all w-56"
-                    />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      to="/triage"
+                      className="text-xs font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
+                    >
+                      Open in Triage Queue →
+                    </Link>
+                    <div className="relative">
+                      <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-600" />
+                      <input
+                        type="text"
+                        aria-label="Filter findings table"
+                        placeholder="Filter findings..."
+                        value={searchFilter}
+                        onChange={(e) => setSearchFilter(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 rounded-lg bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-900 placeholder:text-zinc-600 focus:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 transition-all w-56"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -935,6 +936,7 @@ export function ResultsPage() {
                             item.verification_status,
                             item.weak_evidence
                           );
+                          const acceptState = getAcceptActionState(item);
                           const canUndo = Boolean(item.can_undo || workItemUndoSnapshots[item.id]);
 
                           return (
@@ -1285,6 +1287,28 @@ export function ResultsPage() {
                               {/* Resolution Actions */}
                               <td className="py-3 px-3 whitespace-nowrap text-right">
                                 <div className="inline-flex items-center gap-1">
+                                  {acceptState.visible && item.verification_status !== "VERIFIED" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void resolveWorkItem(
+                                          item.id,
+                                          "approve",
+                                          acceptState.kind === "rescue"
+                                            ? item.vision_rescue_text ||
+                                                item.structured_facts[0]?.verbatim_quote ||
+                                                item.fluent_output
+                                            : item.machine_extracted_text ||
+                                                item.structured_facts[0]?.verbatim_quote ||
+                                                item.fluent_output
+                                        )
+                                      }
+                                      className="px-2 py-1 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    >
+                                      {acceptState.label}
+                                    </button>
+                                  )}
+
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1330,7 +1354,7 @@ export function ResultsPage() {
                                       }}
                                       className="px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 text-[11px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                                     >
-                                      Legal
+                                      Flag for Legal
                                     </button>
                                   )}
 
@@ -1343,6 +1367,15 @@ export function ResultsPage() {
                                       <RotateCcw size={10} />
                                       <span>Undo</span>
                                     </button>
+                                  )}
+
+                                  {item.verification_status !== "VERIFIED" && (
+                                    <Link
+                                      to={`/triage?item=${encodeURIComponent(item.id)}`}
+                                      className="px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                                    >
+                                      Triage →
+                                    </Link>
                                   )}
                                 </div>
                               </td>

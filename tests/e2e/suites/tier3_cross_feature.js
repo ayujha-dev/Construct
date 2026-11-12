@@ -120,7 +120,15 @@ export const tier3Tests = [
     description: "Navigate to Approve button via keyboard in HumanEscalationCard; press Space to resolve",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
+      const up = await api.uploadTextDocument(
+        "c05_vision_rescue.txt",
+        "[LOW_CONFIDENCE] STAMP NOTE: Signed addendum dated 2026-03-01.\n"
+      );
+      assert(up.ok && up.data?.id, "Uploaded rescue doc for TC-C05");
+      const job = await api.startJob({ document_id: up.data.id });
+      await api.waitForJob(job.data.job_id);
       await page.goto(`${webUrl}/workspace`);
+      await sleep(600);
 
       const keyAction = await page.evaluate(async () => {
         const acceptBtn = Array.from(document.querySelectorAll("button")).find((b) =>
