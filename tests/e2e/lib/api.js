@@ -63,8 +63,12 @@ export class BertApiClient {
     return this._request(`/api/v1/work-items/${id}`);
   }
 
-  async getEscalations() {
-    return this._request("/api/v1/escalations");
+  async getEscalations(params = {}) {
+    const query = new URLSearchParams();
+    if (params.includeResolved) query.set("include_resolved", "true");
+    if (params.documentId) query.set("document_id", params.documentId);
+    const qs = query.toString();
+    return this._request(`/api/v1/escalations${qs ? `?${qs}` : ""}`);
   }
 
   async resolveEscalation(workItemId, body) {
@@ -72,6 +76,52 @@ export class BertApiClient {
       method: "POST",
       body,
     });
+  }
+
+  async batchResolve(body) {
+    return this._request("/api/v1/escalations/batch-resolve", {
+      method: "POST",
+      body,
+    });
+  }
+
+  async resetCorpus() {
+    return this._request("/api/v1/corpus/reset", { method: "POST" });
+  }
+
+  async uploadTextDocument(filename, content) {
+    const boundary = `----BertE2E${Date.now()}${Math.random().toString(16).slice(2)}`;
+    const body =
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: text/plain\r\n\r\n` +
+      `${content}\r\n` +
+      `--${boundary}--\r\n`;
+    const res = await fetch(`${this.baseUrl}/api/v1/documents/upload`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body,
+    });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* non-JSON */
+    }
+    return { status: res.status, ok: res.ok, data, text };
+  }
+
+  async waitForJob(jobId, maxWaitMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      const st = await this.getJob(jobId);
+      if (st.data?.status === "COMPLETED" || st.data?.status === "FAILED" || st.data?.status === "CANCELLED") {
+        return st;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    throw new Error(`Job ${jobId} did not finish within ${maxWaitMs}ms`);
   }
 
   async getAuditLog() {

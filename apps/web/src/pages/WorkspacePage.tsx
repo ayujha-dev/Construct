@@ -1,20 +1,32 @@
 import {
+  AlertTriangle,
   ArrowRight,
   Bot,
   ChevronRight,
   Layers,
-  Pause,
-  Play,
-  ShieldAlert,
+  PanelRightClose,
+  PanelRightOpen,
+  Scale,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { AgentPipelineStepper } from "../components/copilot/AgentPipelineStepper";
 import { BentoCanvas } from "../components/copilot/BentoCanvas";
 import { CopilotStream } from "../components/copilot/CopilotStream";
 import { RightInspectorDrawer } from "../components/copilot/RightInspectorDrawer";
-import { AGENTS, AGENT_ROLES, useBertStore } from "../store/useBertStore";
+import { computeWorkItemMetrics } from "../lib/workItemMetrics";
+import { useBertStore } from "../store/useBertStore";
+
+const MIN_INSPECTOR_WIDTH = 240;
+const MAX_INSPECTOR_WIDTH = 600;
+
+function getDefaultInspectorWidth(): number {
+  if (typeof window !== "undefined" && window.innerWidth <= 1120) {
+    return 340;
+  }
+  return 384;
+}
 
 export function WorkspacePage() {
   const navigate = useNavigate();
@@ -26,69 +38,110 @@ export function WorkspacePage() {
     documents,
     workItems,
     activeJob,
-    pauseJob,
-    resumeJob,
+    corpusStatus,
+    selectedFileFilterId,
+    selectedDocumentId,
     refresh,
   } = useBertStore();
 
+  const [inspectorWidth, setInspectorWidth] = useState<number>(getDefaultInspectorWidth);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+
+  // Only refresh on WorkspacePage mount if App hasn't already initiated corpus load
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (corpusStatus === "idle") {
+      void refresh();
+    }
+  }, [corpusStatus, refresh]);
 
-  const isRunning = activeJob?.status === "RUNNING";
-  const isPaused = activeJob?.status === "PAUSED";
-  const agentIndex = activeJob?.current_agent_index ?? 0;
-  const currentAgent = AGENTS[Math.min(agentIndex, AGENTS.length - 1)];
-  const currentRole = AGENT_ROLES[Math.min(agentIndex, AGENT_ROLES.length - 1)];
-  const activeDoc = activeJob?.current_document_id
-    ? documents.find((d) => d.id === activeJob.current_document_id)
-    : documents[0];
-  const currentNode = (activeJob?.current_node_index ?? 0) + 1;
+  // Keep inspector bounded on narrow desktop viewports so center workspace retains >= 400px
+  useEffect(() => {
+    const onResize = () => {
+      const maxAllowed = Math.max(MIN_INSPECTOR_WIDTH, window.innerWidth - 240 - 420);
+      setInspectorWidth((prev) => (prev > maxAllowed ? maxAllowed : prev));
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
-  // Caution summary counters
-  const criticalCount = workItems.filter((i) => i.priority_tier === "P0_CRITICAL").length;
-  const needsHumanCount = workItems.filter((i) => i.verification_status !== "VERIFIED").length;
-  const verifiedCount = workItems.filter(
-    (i) => i.verification_status === "VERIFIED" && i.priority_tier !== "P0_CRITICAL"
-  ).length;
+  const clampWidth = useCallback(
+    (w: number) => Math.max(MIN_INSPECTOR_WIDTH, Math.min(MAX_INSPECTOR_WIDTH, w)),
+    []
+  );
 
-  // Plain-English live agent telemetry
-  const telemetryText = isRunning
-    ? `Agent ${agentIndex + 1} (${currentAgent}) is inspecting ${activeDoc?.filename || "source"} (Node ${currentNode})`
-    : isPaused
-    ? `Paused at Agent ${agentIndex + 1} (${currentAgent}) · Reviewer direction active`
-    : "7-Agent Regiment Standby · Evidence Gate Online";
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = inspectorWidth;
 
-  const setMode = (mode: "stream" | "canvas") => {
-    if (mode === "canvas") {
-      setSearchParams({ mode: "canvas" });
-    } else {
-      setSearchParams({});
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = startX - moveEvent.clientX;
+      setInspectorWidth(clampWidth(startWidth + delta));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const handleSplitterKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setInspectorWidth((w) => clampWidth(w + 10));
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setInspectorWidth((w) => clampWidth(w - 10));
     }
   };
 
+  const activeDocId = selectedFileFilterId || activeJob?.current_document_id || selectedDocumentId;
+  const activeDoc = activeDocId ? documents.find((d) => d.id === activeDocId) : documents[0];
+
+  const metrics = computeWorkItemMetrics(workItems);
+
+  const setMode = (mode: "stream" | "canvas") => {
+    const next = new URLSearchParams(searchParams);
+    if (mode === "canvas") {
+      next.set("mode", "canvas");
+    } else {
+      next.delete("mode");
+    }
+    setSearchParams(next);
+  };
+
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-white select-none">
-      {/* 1. Top Context Bar (Attio / Replit Hybrid) */}
-      <header className="h-13 border-b border-zinc-200/90 bg-white px-4 flex items-center justify-between shrink-0 z-20">
-        {/* Left: Active project breadcrumb + Segmented Mode Switcher Pill */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
-            <span className="text-zinc-900 font-semibold">Enterprise Review</span>
-            <ChevronRight size={13} className="text-zinc-400" />
-            <span className="truncate max-w-36 text-zinc-600">
+    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bg-canvas)] text-[var(--text-primary)]">
+      {/* 1. Top Context Bar */}
+      <header className="h-13 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 lg:px-4 flex items-center justify-between gap-2 shrink-0 z-20">
+        {/* Left: Breadcrumb + Mode Switcher */}
+        <div className="flex items-center gap-2 lg:gap-3 min-w-0">
+          <div className="hidden lg:flex items-center gap-1.5 text-xs text-[var(--text-secondary)] font-medium min-w-0">
+            <span className="text-[var(--text-primary)] font-semibold shrink-0">
+              Enterprise Review
+            </span>
+            <ChevronRight size={13} className="text-[var(--text-muted)] shrink-0" />
+            <span
+              className="truncate max-w-32 text-[var(--text-secondary)] font-mono text-[11px]"
+              title={activeDoc?.filename || "Corpus"}
+            >
               {activeDoc?.filename || "Corpus"}
             </span>
           </div>
 
-          {/* Replit-style Segmented Switcher Pill (Design | Build) */}
-          <div className="flex p-0.5 rounded-lg bg-zinc-100 border border-zinc-200/80 text-xs font-medium">
+          <div className="flex p-0.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs font-medium shrink-0">
             <button
+              type="button"
               onClick={() => setMode("stream")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-1 rounded-md transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 !isCanvas
-                  ? "bg-white text-zinc-950 font-semibold shadow-2xs"
-                  : "text-zinc-600 hover:text-zinc-950"
+                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] font-semibold shadow-2xs border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               <Bot size={13} />
@@ -96,11 +149,12 @@ export function WorkspacePage() {
             </button>
 
             <button
+              type="button"
               onClick={() => setMode("canvas")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-1 rounded-md transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)] ${
                 isCanvas
-                  ? "bg-white text-zinc-950 font-semibold shadow-2xs"
-                  : "text-zinc-600 hover:text-zinc-950"
+                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] font-semibold shadow-2xs border border-[var(--border-subtle)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               <Layers size={13} />
@@ -109,55 +163,70 @@ export function WorkspacePage() {
           </div>
         </div>
 
-        {/* Center: Live Agent Telemetry Pill */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 border border-zinc-200/90 text-xs">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isRunning ? "bg-blue-600 animate-ping" : isPaused ? "bg-amber-500" : "bg-emerald-500"
-            }`}
-          />
-          <span className="text-zinc-700 font-medium font-ui truncate max-w-sm">
-            {telemetryText}
-          </span>
-          {isRunning && (
-            <button
-              onClick={() => void pauseJob()}
-              className="ml-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-100/70 hover:bg-amber-100 px-2 py-0.5 rounded cursor-pointer transition-colors"
-            >
-              ⏸ Pause Agent
-            </button>
-          )}
-          {isPaused && (
-            <button
-              onClick={() => void resumeJob()}
-              className="ml-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-100/70 hover:bg-emerald-100 px-2 py-0.5 rounded cursor-pointer transition-colors"
-            >
-              ▶ Resume
-            </button>
-          )}
-        </div>
-
-        {/* Right: Caution Summary Pills + Results Button */}
-        <div className="flex items-center gap-2">
-          <div className="hidden xl:flex items-center gap-1.5 text-xs font-mono">
-            {criticalCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-semibold">
-                {criticalCount} Critical
+        {/* Right: Counters + Inspector Controls + Results Button */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div
+            className="hidden 2xl:flex items-center gap-1.5 text-xs font-mono tabular-nums"
+            data-testid="workspace-header-metrics"
+          >
+            {metrics.criticalOpen > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--status-danger-soft)] text-[var(--status-danger-ink)] border border-[var(--status-danger-border)] font-semibold tabular-nums">
+                <AlertTriangle size={11} aria-hidden="true" />
+                <span>{metrics.criticalOpen} Critical Open</span>
               </span>
             )}
-            {needsHumanCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold">
-                {needsHumanCount} Human Input
+            {metrics.escalatedLegal > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] font-semibold tabular-nums">
+                <Scale size={11} aria-hidden="true" />
+                <span>{metrics.escalatedLegal} Legal</span>
               </span>
             )}
-            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-              {verifiedCount} Verified
+            {metrics.humanOverride > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-[var(--status-override-soft)] text-[var(--status-override-ink)] border border-[var(--status-override-border)] font-semibold tabular-nums">
+                {metrics.humanOverride} Override
+              </span>
+            )}
+            {metrics.notApplicable > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-[var(--status-neutral-soft)] text-[var(--status-neutral-ink)] border border-[var(--status-neutral-border)] font-semibold tabular-nums">
+                {metrics.notApplicable} N/A
+              </span>
+            )}
+            {metrics.unresolved > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-[var(--status-warning-soft)] text-[var(--status-warning-ink)] border border-[var(--status-warning-border)] font-semibold tabular-nums">
+                {metrics.unresolved} Human Input
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--status-verified-soft)] text-[var(--status-verified-ink)] border border-[var(--status-verified-border)] font-semibold tabular-nums">
+              <ShieldCheck size={11} aria-hidden="true" />
+              <span>
+                {metrics.machineVerified}/{metrics.total} Verified
+              </span>
             </span>
           </div>
 
           <button
+            type="button"
+            onClick={() => setMobileInspectorOpen(true)}
+            className="md:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[var(--text-primary)] text-xs font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
+          >
+            <PanelRightOpen size={14} />
+            <span>Inspector</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInspectorCollapsed((prev) => !prev)}
+            aria-label={inspectorCollapsed ? "Expand inspector drawer" : "Collapse inspector drawer"}
+            title={inspectorCollapsed ? "Expand inspector drawer" : "Collapse inspector drawer"}
+            className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-sunken)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
+          >
+            {inspectorCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+          </button>
+
+          <button
+            type="button"
             onClick={() => navigate("/results")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-brand)] hover:bg-[var(--accent-brand-hover)] text-[var(--accent-brand-contrast)] text-xs font-medium transition-colors cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
           >
             <span>View Results Report</span>
             <ArrowRight size={13} />
@@ -165,13 +234,43 @@ export function WorkspacePage() {
         </div>
       </header>
 
-      {/* 2. Main Content Split Stage */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Center Stage: Mode A or Mode B */}
-        {isCanvas ? <BentoCanvas /> : <CopilotStream />}
+      {/* Persistent 7-Step Agent Pipeline Stepper */}
+      <AgentPipelineStepper />
 
-        {/* Right Inspector Drawer (Replit Image 4 + Attio Image 5) */}
-        <RightInspectorDrawer />
+      {/* 2. Main Content Split Stage */}
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        {/* Center Stage */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          {isCanvas ? <BentoCanvas /> : <CopilotStream />}
+        </div>
+
+        {/* Resizable Panel Splitter Handle (Desktop) */}
+        {!inspectorCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize inspector panel"
+            aria-valuemin={MIN_INSPECTOR_WIDTH}
+            aria-valuemax={MAX_INSPECTOR_WIDTH}
+            aria-valuenow={inspectorWidth}
+            tabIndex={0}
+            data-panel-resize-handle-id="inspector-splitter"
+            onMouseDown={handleSplitterMouseDown}
+            onKeyDown={handleSplitterKeyDown}
+            className="hidden md:flex w-1.5 bg-[var(--border-subtle)] hover:bg-[var(--accent-brand)] cursor-col-resize items-center justify-center shrink-0 select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-brand-ring)]"
+          >
+            <span className="w-0.5 h-8 rounded-full bg-[var(--text-muted)]" aria-hidden="true" />
+          </div>
+        )}
+
+        {/* Right Inspector Drawer */}
+        {!inspectorCollapsed && (
+          <RightInspectorDrawer
+            width={inspectorWidth}
+            mobileOpen={mobileInspectorOpen}
+            onCloseMobile={() => setMobileInspectorOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

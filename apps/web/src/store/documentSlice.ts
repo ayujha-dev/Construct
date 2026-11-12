@@ -1,35 +1,104 @@
 import type { StateCreator } from "zustand";
 import { bertApi } from "../lib/api";
+import { deriveNodeLocator } from "../lib/evidenceLocators";
+import { createInitialAgentSteps, hydrateAgentStepsFromJob } from "../lib/pipelineTelemetry";
 import type { ASTNode, Document, JobExecution } from "../types/bert";
-import { checksum, localDocument, localItems, readWithFileReader, runLocalMultiAgentReview, uid } from "./simulatorService";
+import {
+  cancelLocalSimulation,
+  localItems,
+  parseUploadedFileLocally,
+  runLocalMultiAgentReview,
+  uid,
+} from "./simulatorService";
 import type { BertState } from "./useBertStore";
+
+export type CorpusStatus = "idle" | "loading" | "ready" | "error";
 
 export interface DocumentSlice {
   documents: Document[];
   selectedDocumentId: string | null;
+  selectedFileFilterId: string | null;
+  workspaceId: string | null;
+  corpusStatus: CorpusStatus;
+  corpusError: string | null;
   nodesByDocument: Record<string, ASTNode[]>;
   documentFiles: Record<string, File>;
   setSelectedDocument: (id: string | null) => void;
   selectDocument: (id: string) => void;
+  setSelectedFileFilter: (id: string | null) => void;
+  setWorkspaceId: (id: string | null) => void;
   setDocuments: (docs: Document[]) => void;
   loadNodes: (documentId: string) => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
+  uploadFiles: (files: File[]) => Promise<void>;
 }
 
 export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice> = (set, get) => ({
   documents: [],
   selectedDocumentId: null,
+  selectedFileFilterId: null,
+  workspaceId: null,
+  corpusStatus: "idle",
+  corpusError: null,
   nodesByDocument: {},
   documentFiles: {},
 
   setSelectedDocument: (id) => {
-    set({ selectedDocumentId: id, selectedNodeId: null, activeHighlightBox: null });
-    if (id) void get().loadNodes(id);
+    set((state) => ({
+      selectedDocumentId: id,
+      selectedNodeId: null,
+      activeHighlightBox: null,
+      activeLocator: null,
+      activeCitationQuote: null,
+      activeRegionMatchScore: null,
+      requestedPage: null,
+      currentPdfPage: null,
+      // If user already had a file filter active and switched to another file, update filter to match
+      selectedFileFilterId:
+        state.selectedFileFilterId && id && state.selectedFileFilterId !== id
+          ? id
+          : state.selectedFileFilterId,
+    }));
+    if (id && !get().nodesByDocument[id]) {
+      void get().loadNodes(id);
+    }
   },
 
   selectDocument: (id) => {
     get().setSelectedDocument(id);
   },
+
+  setSelectedFileFilter: (id) => {
+    if (!id) {
+      set({ selectedFileFilterId: null });
+      return;
+    }
+    const state = get();
+    const docExists = state.documents.some((d) => d.id === id);
+    const nextSelectedDoc = docExists ? id : state.selectedDocumentId;
+    const isSwitchingDoc = nextSelectedDoc !== state.selectedDocumentId;
+
+    set({
+      selectedFileFilterId: id,
+      selectedDocumentId: nextSelectedDoc,
+      ...(isSwitchingDoc
+        ? {
+            selectedNodeId: null,
+            activeHighlightBox: null,
+            activeLocator: null,
+            activeCitationQuote: null,
+            activeRegionMatchScore: null,
+            requestedPage: null,
+            currentPdfPage: null,
+          }
+        : {}),
+    });
+    if (nextSelectedDoc && !get().nodesByDocument[nextSelectedDoc]) {
+      void get().loadNodes(nextSelectedDoc);
+    }
+  },
+
+  setWorkspaceId: (workspaceId) => set({ workspaceId }),
 
   setDocuments: (documents) => {
     set({ documents });
@@ -37,19 +106,28 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
 
   loadNodes: async (documentId) => {
     try {
-      const nodes = await bertApi.getNodes(documentId);
+      const rawNodes = await bertApi.getNodes(documentId);
+      const doc = get().documents.find((d) => d.id === documentId) ?? null;
+      const nodes: ASTNode[] = rawNodes.map((node) => {
+        if (node.locator) return node;
+        const derived = deriveNodeLocator(node, doc);
+        return derived ? { ...node, locator: derived } : node;
+      });
       set((state) => {
         const selectedNode = state.selectedNodeId ? nodes.find((node) => node.id === state.selectedNodeId) : undefined;
         return {
           nodesByDocument: { ...state.nodesByDocument, [documentId]: nodes },
-          activeHighlightBox: selectedNode?.bounding_box
+          ...(selectedNode?.bounding_box
             ? {
-                ...selectedNode.bounding_box,
-                nodeId: selectedNode.id,
-                pageNumber: selectedNode.page_number,
-                confidence: selectedNode.ocr_confidence,
+                activeHighlightBox: {
+                  ...selectedNode.bounding_box,
+                  nodeId: selectedNode.id,
+                  pageNumber: selectedNode.page_number,
+                  confidence: selectedNode.ocr_confidence,
+                },
+                activeLocator: selectedNode.locator ?? state.activeLocator,
               }
-            : state.activeHighlightBox,
+            : {}),
         };
       });
     } catch {
@@ -61,22 +139,38 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
     try {
       const document = await bertApi.upload(file);
       const job = await bertApi.startJob(document.id);
+      const hydrated = hydrateAgentStepsFromJob(job, [document, ...get().documents]);
       set((state) => ({
         documents: [document, ...state.documents.filter((item) => item.id !== document.id)],
         documentFiles: { ...state.documentFiles, [document.id]: file },
+        workspaceId: document.workspace_id ?? job.workspace_id ?? state.workspaceId,
+        corpusStatus: "ready",
+        corpusError: null,
         activeJob: job,
         job,
+        agentSteps: hydrated.agentSteps,
+        agentRuns: hydrated.agentRuns,
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
+        isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
+        hasCompletedRun: job.status === "COMPLETED",
         selectedDocumentId: document.id,
+        selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
         backendAvailable: true,
         notice: `Uploaded ${document.filename} · Seven-agent review started.`,
       }));
       await get().loadNodes(document.id);
+      void get().loadSummary(get().summaryParams, true);
     } catch {
-      const text = await readWithFileReader(file).catch(() => "");
-      const hash = await checksum(text || file.name);
-      const { document, nodes } = localDocument(file, text, hash);
-      const workspaceId = uid();
+      cancelLocalSimulation();
+      const workspaceId = get().workspaceId ?? uid();
       const batchId = uid();
+      const { document, nodes } = await parseUploadedFileLocally(file, workspaceId);
       const job: JobExecution = {
         job_id: uid(),
         workspace_id: workspaceId,
@@ -95,15 +189,153 @@ export const createDocumentSlice: StateCreator<BertState, [], [], DocumentSlice>
         documents: [document, ...state.documents],
         nodesByDocument: { ...state.nodesByDocument, [document.id]: nodes },
         documentFiles: { ...state.documentFiles, [document.id]: file },
-        workItems: [...items, ...state.workItems],
+        workItems: state.workItems,
+        workspaceId,
+        corpusStatus: "ready",
+        corpusError: null,
         selectedDocumentId: document.id,
+        selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
         activeJob: job,
         job,
+        agentSteps: createInitialAgentSteps(job.job_id),
+        agentRuns: [],
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
         isSimulating: true,
+        hasCompletedRun: false,
         backendAvailable: false,
         notice: `Uploaded ${document.filename} · Running local 7-agent verification.`,
       }));
-      void runLocalMultiAgentReview(set, get, [document], job);
+      void runLocalMultiAgentReview(set, get, [document], job, {
+        nodesByDocument: { [document.id]: nodes },
+        workItems: items,
+      });
+    }
+  },
+
+  uploadFiles: async (files) => {
+    if (!files.length) return;
+    if (files.length === 1) {
+      await get().uploadFile(files[0]);
+      return;
+    }
+
+    const uploadedOnline: Document[] = [];
+    const remainingForLocal: File[] = [];
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      try {
+        const document = await bertApi.upload(file);
+        const job = await bertApi.startJob(document.id);
+        const hydrated = hydrateAgentStepsFromJob(job, [document, ...get().documents]);
+        uploadedOnline.push(document);
+        set((state) => ({
+          documents: [document, ...state.documents.filter((item) => item.id !== document.id)],
+          documentFiles: { ...state.documentFiles, [document.id]: file },
+          workspaceId: document.workspace_id ?? job.workspace_id ?? state.workspaceId,
+          corpusStatus: "ready",
+          corpusError: null,
+          activeJob: job,
+          job,
+          agentSteps: hydrated.agentSteps,
+          agentRuns: hydrated.agentRuns,
+          jobStartedAt: state.jobStartedAt ?? Date.now(),
+          jobCompletedAt: null,
+          isSimulating: job.status === "RUNNING" || job.status === "RESUMING",
+          hasCompletedRun: job.status === "COMPLETED",
+          selectedDocumentId: uploadedOnline[0]?.id ?? document.id,
+          selectedFileFilterId: null,
+          selectedNodeId: null,
+          activeHighlightBox: null,
+          activeLocator: null,
+          activeCitationQuote: null,
+          activeRegionMatchScore: null,
+          backendAvailable: true,
+          notice: `Uploaded ${uploadedOnline.length} of ${files.length} files · Seven-agent review started.`,
+        }));
+        await get().loadNodes(document.id);
+      } catch {
+        remainingForLocal.push(...files.slice(i));
+        break;
+      }
+    }
+
+    if (uploadedOnline.length > 0 && remainingForLocal.length === 0) {
+      void get().loadSummary(get().summaryParams, true);
+      return;
+    }
+
+    if (remainingForLocal.length > 0) {
+      cancelLocalSimulation();
+      const workspaceId = get().workspaceId ?? uid();
+      const batchId = uid();
+      const localDocs: Document[] = [];
+      const localNodesMap: Record<string, ASTNode[]> = {};
+      const localFileMap: Record<string, File> = {};
+      const allLocalItems: ReturnType<typeof localItems> = [];
+
+      for (const file of remainingForLocal) {
+        const { document, nodes } = await parseUploadedFileLocally(file, workspaceId);
+        localDocs.push(document);
+        localNodesMap[document.id] = nodes;
+        localFileMap[document.id] = file;
+        allLocalItems.push(...localItems(document, nodes, workspaceId, batchId));
+      }
+
+      const job: JobExecution = {
+        job_id: uid(),
+        workspace_id: workspaceId,
+        batch_id: batchId,
+        status: "RUNNING",
+        current_agent_index: 0,
+        current_document_id: localDocs[0]?.id ?? null,
+        current_node_index: 0,
+        checkpoint_id: uid(),
+        completed_step_outputs: {},
+        user_override_instructions: [],
+        error_message: null,
+      };
+
+      set((state) => ({
+        documents: [
+          ...localDocs,
+          ...state.documents.filter((d) => !localDocs.some((ld) => ld.id === d.id)),
+        ],
+        nodesByDocument: { ...state.nodesByDocument, ...localNodesMap },
+        documentFiles: { ...state.documentFiles, ...localFileMap },
+        workItems: state.workItems,
+        workspaceId,
+        corpusStatus: "ready",
+        corpusError: null,
+        selectedDocumentId: localDocs[0]?.id ?? state.selectedDocumentId,
+        selectedFileFilterId: null,
+        selectedNodeId: null,
+        activeHighlightBox: null,
+        activeLocator: null,
+        activeCitationQuote: null,
+        activeRegionMatchScore: null,
+        activeJob: job,
+        job,
+        agentSteps: createInitialAgentSteps(job.job_id),
+        agentRuns: [],
+        jobStartedAt: Date.now(),
+        jobCompletedAt: null,
+        isSimulating: true,
+        hasCompletedRun: false,
+        backendAvailable: false,
+        notice: `Uploaded ${localDocs.length} file${localDocs.length === 1 ? "" : "s"} · Running local 7-agent verification.`,
+      }));
+
+      void runLocalMultiAgentReview(set, get, localDocs, job, {
+        nodesByDocument: localNodesMap,
+        workItems: allLocalItems,
+      });
     }
   },
 });

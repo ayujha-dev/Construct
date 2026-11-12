@@ -25,17 +25,40 @@ async def test_demo_seed_runs_all_agents_and_persists_prioritized_items() -> Non
     assert response.status_code == 200
     payload = response.json()
     assert payload["document_count"] == 4
-    assert payload["work_item_count"] == 12
+    assert payload["work_item_count"] == 13
     async with SessionFactory() as session:
         audit_rows = list((await session.execute(select(AuditLog))).scalars().all())
         items = list((await session.execute(select(WorkItem))).scalars().all())
     agent_names = {row.agent_name for row in audit_rows}
     assert {"Scout", "Quartermaster", "Chronos", "Vanguard", "Ranger", "Arbiter", "Envoy", "Citation Gate"} <= agent_names
-    assert len(items) == 12
+    assert len(items) == 13
     assert any(item.priority_tier == "P0_CRITICAL" for item in items)
     assert any(item.category == "Access Control" for item in items)
     assert any(item.verification_status == "INSUFFICIENT_EVIDENCE" for item in items)
     assert all(len(row.input_hash) == 64 and len(row.output_hash) == 64 for row in audit_rows)
+
+    temporal_items = [item for item in items if item.item_type == "TEMPORAL_CONFLICT"]
+    assert len(temporal_items) == 1
+    tc = temporal_items[0]
+    assert tc.category == "Temporal Governance"
+    assert tc.priority_tier == "P1_HIGH"
+    assert tc.verification_status == "VERIFIED"
+    assert len(tc.verified_citations or []) == 2
+    assert {cit["document_filename"] for cit in (tc.verified_citations or [])} == {
+        "SOC2_Type_II_2026.pdf",
+        "Legacy_InfoSec_Policy_2023.pdf",
+    }
+    assert tc.temporal_conflict is not None
+    assert tc.temporal_conflict["newer_filename"] == "SOC2_Type_II_2026.pdf"
+    assert tc.temporal_conflict["older_filename"] == "Legacy_InfoSec_Policy_2023.pdf"
+
+    # Q5 / Q7 / Q8 must NOT silently fall back to "SOC 2 Type II 2026" header node.
+    for unmatched_fragment in ("effective date", "data retention", "liability and indemnification"):
+        matched = [item for item in items if unmatched_fragment in item.prompt_or_question.lower()]
+        assert len(matched) == 1
+        assert matched[0].verification_status == "INSUFFICIENT_EVIDENCE"
+        assert matched[0].evidence_quality == "missing"
+        assert matched[0].verified_citations == []
 
 
 @pytest.mark.asyncio

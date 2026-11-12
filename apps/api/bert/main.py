@@ -2,55 +2,83 @@
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 import re
 import time
-from datetime import date
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
-from sqlalchemy import delete, desc, inspect, or_, select, text
+from fastapi.responses import FileResponse, PlainTextResponse, Response
+from sqlalchemy import delete, desc, inspect, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bert.agents.controller import JobController
+from bert.agents.pipeline import (
+    _min_words_for_node,
+    persist_executive_summary,
+    persist_ingestion_stream,
+    run_regiment,
+    summary_ws_payload,
+    verify_node_region,
+)
 from bert.api.schemas import (
     ASTNodeResponse,
     AuditResponse,
+    BatchResolveRequest,
+    BatchResolveResponse,
     CitationMatch,
     CopilotChatRequest,
     CopilotChatResponse,
+    CorpusResetResponse,
     DocumentResponse,
     EscalationActionRequest,
     EscalationResponse,
+    ExecutiveSummaryResponse,
     JobExecutionResponse,
-    JobStartRequest,
     JobResumeRequest,
+    JobStartRequest,
+    MetricsResponse,
     SandboxRequest,
     SandboxResponse,
     SeedResponse,
+    SummaryGenerateRequest,
+    UndoRequest,
     WorkItemResponse,
 )
 from bert.api.websocket import WebSocketManager
-from bert.agents.controller import JobController
 from bert.config import settings
 from bert.ingestion.checksum import verify_ingestion_completeness
+from bert.ingestion.docling_parser import DoclingParser
 from bert.ingestion.router import ALLOWED_CONTENT_TYPES, ALLOWED_EXTENSIONS, safe_filename, stream_file
 from bert.models.base import Base, SessionFactory, engine
-from bert.models.documents import ASTNode, AuditLog, Document, JobExecution, SourceFormat, WorkItem
-from bert.agents.pipeline import persist_ingestion_stream, run_regiment
-from bert.models.documents import PriorityTier, VerificationStatus
+from bert.models.documents import (
+    ASTNode,
+    AuditLog,
+    Document,
+    ExecutiveSummaryRecord,
+    JobExecution,
+    PriorityTier,
+    ResolvedByTier,
+    SourceFormat,
+    VerificationStatus,
+    WorkItem,
+    utc_now,
+)
 from bert.state import DATA_DIR, stored_source_path
 from bert.verification.citation_gate import (
     INSUFFICIENT_EVIDENCE_OUTPUT,
     payload_hash,
     run_verification_gate,
 )
+from bert.verification.metrics import compute_work_item_metrics
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -78,11 +106,65 @@ async def startup() -> None:
         )
         if "file_size_bytes" not in document_columns:
             await connection.execute(text("ALTER TABLE documents ADD COLUMN file_size_bytes INTEGER DEFAULT 0"))
-        columns = await connection.run_sync(
+
+        audit_columns = await connection.run_sync(
             lambda sync_connection: {column["name"] for column in inspect(sync_connection).get_columns("audit_log")}
         )
-        if "metadata" not in columns:
+        if "metadata" not in audit_columns:
             await connection.execute(text("ALTER TABLE audit_log ADD COLUMN metadata JSON"))
+
+        ast_columns = await connection.run_sync(
+            lambda sync_connection: {column["name"] for column in inspect(sync_connection).get_columns("ast_nodes")}
+        )
+        if "locator" not in ast_columns:
+            await connection.execute(text("ALTER TABLE ast_nodes ADD COLUMN locator JSON"))
+
+        work_item_columns = await connection.run_sync(
+            lambda sync_connection: {column["name"] for column in inspect(sync_connection).get_columns("work_items")}
+        )
+        work_item_migrations = {
+            "escalation_reason": "ALTER TABLE work_items ADD COLUMN escalation_reason TEXT",
+            "escalation_assignee": "ALTER TABLE work_items ADD COLUMN escalation_assignee VARCHAR(200)",
+            "escalated_at": "ALTER TABLE work_items ADD COLUMN escalated_at DATETIME",
+            "escalated_by": "ALTER TABLE work_items ADD COLUMN escalated_by VARCHAR(200)",
+            "original_priority_tier": "ALTER TABLE work_items ADD COLUMN original_priority_tier VARCHAR(20)",
+            "previous_state_snapshot": "ALTER TABLE work_items ADD COLUMN previous_state_snapshot JSON",
+            "human_override_reason_code": "ALTER TABLE work_items ADD COLUMN human_override_reason_code VARCHAR(120)",
+            "no_evidence_attestation": "ALTER TABLE work_items ADD COLUMN no_evidence_attestation BOOLEAN DEFAULT 0",
+            "override_locator": "ALTER TABLE work_items ADD COLUMN override_locator JSON",
+            "weak_evidence": "ALTER TABLE work_items ADD COLUMN weak_evidence BOOLEAN DEFAULT 0",
+            "weak_evidence_reason": "ALTER TABLE work_items ADD COLUMN weak_evidence_reason TEXT",
+            "evidence_quality": "ALTER TABLE work_items ADD COLUMN evidence_quality VARCHAR(20) DEFAULT 'missing'",
+            "machine_extracted_text": "ALTER TABLE work_items ADD COLUMN machine_extracted_text TEXT",
+            "vision_rescue_text": "ALTER TABLE work_items ADD COLUMN vision_rescue_text TEXT",
+            "has_vision_rescue": "ALTER TABLE work_items ADD COLUMN has_vision_rescue BOOLEAN DEFAULT 0",
+            "temporal_conflict": "ALTER TABLE work_items ADD COLUMN temporal_conflict JSON",
+        }
+        for col_name, ddl in work_item_migrations.items():
+            if col_name not in work_item_columns:
+                await connection.execute(text(ddl))
+
+        summary_column_info = await connection.run_sync(
+            lambda sync_connection: inspect(sync_connection).get_columns("executive_summaries")
+        )
+        score_col = next((col for col in summary_column_info if col["name"] == "defensibility_score"), None)
+        if score_col is not None and score_col.get("nullable") is False:
+            await connection.run_sync(ExecutiveSummaryRecord.__table__.drop)
+            await connection.run_sync(ExecutiveSummaryRecord.__table__.create)
+            summary_column_info = await connection.run_sync(
+                lambda sync_connection: inspect(sync_connection).get_columns("executive_summaries")
+            )
+        summary_columns = {column["name"] for column in summary_column_info}
+        summary_migrations = {
+            "human_override_count": "ALTER TABLE executive_summaries ADD COLUMN human_override_count INTEGER DEFAULT 0",
+            "not_applicable_count": "ALTER TABLE executive_summaries ADD COLUMN not_applicable_count INTEGER DEFAULT 0",
+            "critical_open_count": "ALTER TABLE executive_summaries ADD COLUMN critical_open_count INTEGER DEFAULT 0",
+            "high_open_count": "ALTER TABLE executive_summaries ADD COLUMN high_open_count INTEGER DEFAULT 0",
+            "weak_evidence_count": "ALTER TABLE executive_summaries ADD COLUMN weak_evidence_count INTEGER DEFAULT 0",
+        }
+        for col_name, ddl in summary_migrations.items():
+            if col_name not in summary_columns:
+                await connection.execute(text(ddl))
 
 
 @app.get("/health")
@@ -146,14 +228,11 @@ async def document_file(document_id: UUID) -> FileResponse:
 @app.post("/api/v1/copilot/chat", response_model=CopilotChatResponse)
 async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
     async with SessionFactory() as session:
-        query = (
-            select(ASTNode, Document)
-            .join(Document, ASTNode.document_id == Document.id)
-            .where(Document.source_format != SourceFormat.XLSX)
-            .order_by(ASTNode.node_order)
-        )
+        query = select(ASTNode, Document).join(Document, ASTNode.document_id == Document.id).order_by(ASTNode.node_order)
         if request.document_id is not None:
             query = query.where(ASTNode.document_id == request.document_id)
+        else:
+            query = query.where(Document.source_format != SourceFormat.XLSX)
         rows = list((await session.execute(query)).all())
 
     ranked = _rank_copilot_nodes(request.prompt, rows)
@@ -161,14 +240,32 @@ async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
         return _insufficient_copilot_response()
 
     _, selected_node, selected_document = ranked[0]
-    source_texts = [node.verbatim_text for _, node, _ in ranked]
-    claimed_quote = selected_node.verbatim_text
-    gate = run_verification_gate([claimed_quote], source_texts)
-    if not gate.passed:
+    if selected_node.ocr_confidence < 0.90:
         return _insufficient_copilot_response()
 
-    page = selected_node.page_number or 1
-    inline_citation = f"[{selected_document.filename}:{page}]"
+    source_texts = [node.verbatim_text for _, node, _ in ranked]
+    claimed_quote = selected_node.verbatim_text
+    gate = run_verification_gate(
+        [claimed_quote],
+        source_texts,
+        min_quote_words=_min_words_for_node(selected_node, claimed_quote),
+    )
+    region_passed, region_match_score = verify_node_region(selected_node, selected_document, claimed_quote)
+    if not gate.passed or not region_passed:
+        return _insufficient_copilot_response()
+
+    locator_dict = dict(selected_node.locator) if selected_node.locator else None
+    if locator_dict is not None and not locator_dict.get("checksum"):
+        locator_dict["checksum"] = selected_document.ast_checksum
+
+    if locator_dict and locator_dict.get("source_type") == "json":
+        inline_citation = f"[{selected_document.filename}:{locator_dict.get('json_path')}]"
+    elif locator_dict and locator_dict.get("source_type") == "xlsx":
+        inline_citation = f"[{selected_document.filename}:{locator_dict.get('sheet')}!{locator_dict.get('col_range')}]"
+    else:
+        page = selected_node.page_number or 1
+        inline_citation = f"[{selected_document.filename}:{page}]"
+
     citation = CitationMatch(
         quote=claimed_quote,
         ast_node_id=str(selected_node.id),
@@ -176,6 +273,8 @@ async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
         bounding_box=selected_node.bounding_box,
         document_filename=selected_document.filename,
         confidence_score=gate.best_citation_score,
+        locator=locator_dict,
+        region_match_score=region_match_score,
     )
     return CopilotChatResponse(
         answer=f"{claimed_quote} {inline_citation}",
@@ -187,9 +286,13 @@ async def copilot_chat(request: CopilotChatRequest) -> CopilotChatResponse:
 
 @app.get("/api/v1/work-items", response_model=list[WorkItemResponse])
 async def work_items(
-    priority_tier: str | None = None, category: str | None = None, verification_status: str | None = None,
+    priority_tier: str | None = None,
+    category: str | None = None,
+    verification_status: str | None = None,
     resolved_by_tier: str | None = None,
+    document_id: str | None = None,
 ) -> list[WorkItem]:
+    parsed_doc_id = _parse_optional_uuid(document_id)
     async with SessionFactory() as session:
         query = select(WorkItem).order_by(WorkItem.priority_score.desc(), WorkItem.created_at)
         if priority_tier:
@@ -200,6 +303,8 @@ async def work_items(
             query = query.where(WorkItem.verification_status == verification_status)
         if resolved_by_tier:
             query = query.where(WorkItem.resolved_by_tier == resolved_by_tier)
+        if parsed_doc_id is not None:
+            query = query.where(WorkItem.document_id == parsed_doc_id)
         result = await session.execute(query)
         return list(result.scalars().all())
 
@@ -248,13 +353,15 @@ async def _upload_document(file: UploadFile) -> Document:
         while chunk := await file.read(1024 * 1024):
             await asyncio.to_thread(output.write, chunk)
     await file.close()
-    source_format = {
-        ".pdf": SourceFormat.DIGITAL_PDF,
-        ".xlsx": SourceFormat.XLSX,
-        ".json": SourceFormat.JSON_CONFIG,
-        ".txt": SourceFormat.TEXT,
-        ".md": SourceFormat.TEXT,
-    }[extension]
+    if extension == ".pdf":
+        source_format = await asyncio.to_thread(DoclingParser().detect_source_format, destination)
+    else:
+        source_format = {
+            ".xlsx": SourceFormat.XLSX,
+            ".json": SourceFormat.JSON_CONFIG,
+            ".txt": SourceFormat.TEXT,
+            ".md": SourceFormat.TEXT,
+        }[extension]
     async with SessionFactory() as session:
         document = await persist_ingestion_stream(
             session,
@@ -266,6 +373,10 @@ async def _upload_document(file: UploadFile) -> Document:
             storage_path=str(destination),
         )
         document.file_size_bytes = destination.stat().st_size
+        if source_format not in {SourceFormat.XLSX, SourceFormat.JSON_CONFIG}:
+            year_match = re.search(r"(19\d{2}|20\d{2})", filename)
+            if year_match:
+                document.effective_date = date(int(year_match.group(1)), 1, 1)
         complete = await verify_ingestion_completeness(session, document.id, document.ast_checksum)
         await session.commit()
         if not complete:
@@ -285,30 +396,93 @@ async def ingest(file: UploadFile = File(...)) -> Document:
 
 @app.post("/api/v1/demo/seed", response_model=SeedResponse)
 async def seed_demo() -> SeedResponse:
+    await job_controller.cancel_active_jobs()
     workspace_id = uuid4()
     batch_id = uuid4()
     fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
     async with SessionFactory() as session:
         documents_to_process = await _prepare_demo_documents(session, workspace_id, fixture_paths)
         work = await run_regiment(session, workspace_id, batch_id, documents_to_process, manager.sink)
+        metrics = compute_work_item_metrics(work)
         return SeedResponse(
-            workspace_id=workspace_id, batch_id=batch_id, document_count=len(documents_to_process),
-            work_item_count=len(work), critical_count=sum(1 for item in work if _enum_value(item.priority_tier) == "P0_CRITICAL"),
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+            document_count=len(documents_to_process),
+            work_item_count=len(work),
+            critical_count=metrics["critical_total"],
+            verified_count=metrics["machine_verified"],
+            unresolved_count=metrics["unresolved"],
+            defensibility_score=metrics["defensibility_score"],
         )
 
 
 @app.post("/api/v1/jobs/demo", response_model=JobExecutionResponse)
 async def start_demo_job() -> dict[str, Any]:
-    """Start a background demo run that can be paused between atomic agent steps."""
-    state = await job_controller.create(uuid4(), uuid4())
-    asyncio.create_task(_run_demo_job(state.job_id))
+    """Prepare all demo documents synchronously, then run the 7-agent regiment in background."""
+    await job_controller.cancel_active_jobs()
+    workspace_id = uuid4()
+    batch_id = uuid4()
+    fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
+    async with SessionFactory() as session:
+        documents_to_process = await _prepare_demo_documents(session, workspace_id, fixture_paths)
+    document_ids = [doc.id for doc in documents_to_process]
+    state = await job_controller.create(workspace_id, batch_id)
+    asyncio.create_task(_run_demo_job(state.job_id, document_ids))
     return job_controller.snapshot(state)
+
+
+@app.post("/api/v1/corpus/reset", response_model=CorpusResetResponse)
+async def reset_corpus() -> CorpusResetResponse:
+    """Atomically wipe active corpus tables and cancel any running background jobs."""
+    await job_controller.cancel_active_jobs()
+    async with SessionFactory() as session:
+        del_nodes = await session.execute(delete(ASTNode))
+        del_items = await session.execute(delete(WorkItem))
+        del_logs = await session.execute(delete(AuditLog))
+        del_sums = await session.execute(delete(ExecutiveSummaryRecord))
+        del_jobs = await session.execute(delete(JobExecution))
+        del_docs = await session.execute(delete(Document))
+        await session.commit()
+    await manager.sink.publish({"type": "corpus_reset"})
+    return CorpusResetResponse(
+        status="reset",
+        deleted_documents=int(del_docs.rowcount or 0),
+        deleted_ast_nodes=int(del_nodes.rowcount or 0),
+        deleted_work_items=int(del_items.rowcount or 0),
+        deleted_audit_logs=int(del_logs.rowcount or 0),
+        deleted_summaries=int(del_sums.rowcount or 0),
+        deleted_jobs=int(del_jobs.rowcount or 0),
+    )
+
+
+@app.get("/api/v1/metrics", response_model=MetricsResponse)
+async def get_metrics(
+    document_id: str | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> dict[str, Any]:
+    """Return canonical mutually exclusive work-item metrics and defensibility score."""
+    parsed_doc_id = _parse_optional_uuid(document_id)
+    async with SessionFactory() as session:
+        docs = list((await session.execute(select(Document).order_by(Document.created_at))).scalars().all())
+        items = list(
+            (await session.execute(select(WorkItem).order_by(WorkItem.priority_score.desc(), WorkItem.created_at)))
+            .scalars()
+            .all()
+        )
+    filtered = _filter_work_items_for_scope(
+        docs,
+        items,
+        document_id=parsed_doc_id,
+        only_critical=only_critical,
+        latest_only=latest_only,
+    )
+    return compute_work_item_metrics(filtered)
 
 
 @app.post("/api/v1/jobs/start", response_model=JobExecutionResponse)
 async def start_job(request: JobStartRequest | None = None) -> dict[str, Any]:
     """Start the seven-agent review for one uploaded document or the current corpus."""
-
     async with SessionFactory() as session:
         query = select(Document).order_by(desc(Document.created_at))
         if request and request.document_id:
@@ -329,14 +503,23 @@ async def _prepare_demo_documents(
     await session.execute(delete(ASTNode))
     await session.execute(delete(WorkItem))
     await session.execute(delete(AuditLog))
+    await session.execute(delete(ExecutiveSummaryRecord))
     await session.execute(delete(Document))
     await session.commit()
     documents: list[Document] = []
     for filename, source_format, path in fixture_paths:
         document_id = uuid4()
+        actual_format = source_format
+        if path.suffix.lower() == ".pdf":
+            actual_format = await asyncio.to_thread(DoclingParser().detect_source_format, path)
         document = await persist_ingestion_stream(
-            session, workspace_id, filename, source_format, stream_file(path, document_id),
-            document_id=document_id, storage_path=str(path),
+            session,
+            workspace_id,
+            filename,
+            actual_format,
+            stream_file(path, document_id),
+            document_id=document_id,
+            storage_path=str(path),
         )
         document.file_size_bytes = path.stat().st_size
         if not await verify_ingestion_completeness(session, document.id, document.ast_checksum):
@@ -349,21 +532,35 @@ async def _prepare_demo_documents(
     return documents
 
 
-async def _run_demo_job(job_id: UUID) -> None:
+async def _run_demo_job(job_id: UUID, document_ids: list[UUID]) -> None:
     state = await job_controller.get(job_id)
     if state is None:
         return
     try:
-        fixture_paths = await asyncio.to_thread(_write_demo_fixtures)
         async with SessionFactory() as session:
-            documents_to_process = await _prepare_demo_documents(session, state.workspace_id, fixture_paths)
+            documents_to_process: list[Document] = []
+            for doc_id in document_ids:
+                record = await session.get(Document, doc_id)
+                if record is not None:
+                    documents_to_process.append(record)
+            if not documents_to_process:
+                return
             await run_regiment(
-                session, state.workspace_id, state.batch_id, documents_to_process, manager.sink,
-                controller=job_controller, job_id=job_id,
+                session,
+                state.workspace_id,
+                state.batch_id,
+                documents_to_process,
+                manager.sink,
+                controller=job_controller,
+                job_id=job_id,
             )
-        await job_controller.complete(job_id)
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled and current_state.status != "CANCELLED":
+            await job_controller.complete(job_id)
     except Exception as error:
-        await job_controller.fail(job_id, str(error))
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled:
+            await job_controller.fail(job_id, str(error))
 
 
 async def _run_uploaded_job(job_id: UUID, documents: list[Document]) -> None:
@@ -377,13 +574,24 @@ async def _run_uploaded_job(job_id: UUID, documents: list[Document]) -> None:
                 record = await session.get(Document, document.id)
                 if record is not None:
                     persisted.append(record)
+            if not persisted:
+                return
             await run_regiment(
-                session, state.workspace_id, state.batch_id, persisted, manager.sink,
-                controller=job_controller, job_id=job_id,
+                session,
+                state.workspace_id,
+                state.batch_id,
+                persisted,
+                manager.sink,
+                controller=job_controller,
+                job_id=job_id,
             )
-        await job_controller.complete(job_id)
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled and current_state.status != "CANCELLED":
+            await job_controller.complete(job_id)
     except Exception as error:
-        await job_controller.fail(job_id, str(error))
+        current_state = await job_controller.get(job_id)
+        if current_state is not None and not current_state.cancelled:
+            await job_controller.fail(job_id, str(error))
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobExecutionResponse)
@@ -406,7 +614,6 @@ async def interrupt_job(job_id: UUID) -> dict[str, Any]:
 @app.post("/api/v1/jobs/{job_id}/pause", response_model=JobExecutionResponse)
 async def pause_job(job_id: UUID) -> dict[str, Any]:
     """Named pause alias used by the live copilot."""
-
     return await interrupt_job(job_id)
 
 
@@ -420,23 +627,340 @@ async def resume_job(job_id: UUID, request: JobResumeRequest) -> dict[str, Any]:
 
 
 @app.get("/api/v1/escalations", response_model=list[EscalationResponse])
-async def escalations() -> list[EscalationResponse]:
-    async with SessionFactory() as session:
-        result = await session.execute(
-            select(WorkItem).where(WorkItem.verification_status != VerificationStatus.VERIFIED).order_by(WorkItem.priority_score.desc())
+async def escalations(
+    include_resolved: bool = False,
+    document_id: str | None = None,
+) -> list[EscalationResponse]:
+    parsed_doc_id = _parse_optional_uuid(document_id)
+    statuses = [
+        VerificationStatus.NEEDS_HUMAN_VERIFICATION,
+        VerificationStatus.INSUFFICIENT_EVIDENCE,
+        VerificationStatus.ESCALATED_LEGAL,
+    ]
+    if include_resolved:
+        statuses.extend(
+            [
+                VerificationStatus.HUMAN_OVERRIDE,
+                VerificationStatus.NOT_APPLICABLE,
+                VerificationStatus.VERIFIED,
+            ]
         )
+
+    async with SessionFactory() as session:
+        query = (
+            select(WorkItem)
+            .where(WorkItem.verification_status.in_(statuses))
+            .order_by(WorkItem.priority_score.desc(), WorkItem.created_at.asc())
+        )
+        if parsed_doc_id is not None:
+            query = query.where(WorkItem.document_id == parsed_doc_id)
+        result = await session.execute(query)
         items = list(result.scalars().all())
         return [
             EscalationResponse(
                 work_item_id=item.id,
-                reason="Evidence gate failed; source proof is insufficient for an autonomous answer.",
+                document_id=item.document_id,
+                item_type=item.item_type,
+                reason=_escalation_display_reason(item),
                 prompt_or_question=item.prompt_or_question,
                 priority_tier=_enum_value(item.priority_tier),
                 verification_status=_enum_value(item.verification_status),
                 fluent_output=item.fluent_output,
+                escalation_reason=item.escalation_reason,
+                escalation_assignee=item.escalation_assignee,
+                escalated_at=item.escalated_at,
+                escalated_by=item.escalated_by,
+                original_priority_tier=item.original_priority_tier,
+                human_override_reason_code=item.human_override_reason_code,
+                no_evidence_attestation=bool(item.no_evidence_attestation),
+                override_locator=item.override_locator,
+                weak_evidence=bool(item.weak_evidence),
+                weak_evidence_reason=item.weak_evidence_reason,
+                evidence_quality=item.evidence_quality or "missing",
+                machine_extracted_text=item.machine_extracted_text,
+                vision_rescue_text=item.vision_rescue_text,
+                has_vision_rescue=bool(
+                    item.has_vision_rescue or (item.vision_rescue_text and item.vision_rescue_text.strip())
+                ),
+                temporal_conflict=item.temporal_conflict,
+                gate_telemetry=item.gate_telemetry or {},
+                can_undo=item.can_undo,
+                verified_citations=item.verified_citations or [],
             )
             for item in items
         ]
+
+
+def _apply_resolution_to_item(
+    session: AsyncSession,
+    item: WorkItem,
+    request: EscalationActionRequest,
+) -> None:
+    if request.action == "undo":
+        _apply_undo_mutations(
+            session,
+            item,
+            actor=request.actor,
+            note=request.note,
+        )
+        return
+
+    snapshot = _snapshot_work_item(item)
+    actor = (
+        (request.actor or "").strip()
+        or str((request.manual_payload or {}).get("actor") or (request.manual_payload or {}).get("approver_id") or "").strip()
+        or "Compliance Reviewer"
+    )
+    assignee = (
+        (request.assignee or "").strip()
+        or str((request.manual_payload or {}).get("assignee") or "").strip()
+        or None
+    )
+    reason_code = (request.reason_code or "").strip()
+    note_text = (request.note or "").strip()
+    if reason_code and note_text and reason_code != note_text:
+        reason: str | None = f"{reason_code}: {note_text}"
+    else:
+        reason = reason_code or note_text or None
+    now = utc_now()
+
+    override_locator_dict = request.override_locator.model_dump() if request.override_locator is not None else None
+    override_citation_text = (request.override_citation_text or "").strip()
+    audit_action = f"ESCALATION_{request.action.upper()}"
+    audit_metadata_extra: dict[str, Any] = {}
+
+    if request.action == "manual_correction":
+        if not reason_code:
+            raise HTTPException(status_code=422, detail="A non-empty reason_code is required for manual_correction")
+        correction = (request.correction or "").strip()
+        words = [word for word in correction.split() if word]
+        if len(correction) < 12 or len(words) < 3:
+            raise HTTPException(
+                status_code=422,
+                detail="Manual correction must be at least 12 characters and 3 words",
+            )
+        has_existing_locator = bool(item.override_locator) or any(
+            bool((cit or {}).get("locator")) for cit in (item.verified_citations or [])
+        )
+        has_evidence_support = bool(override_locator_dict or override_citation_text or has_existing_locator)
+        if not has_evidence_support and not request.no_evidence_attestation:
+            raise HTTPException(
+                status_code=422,
+                detail="Manual correction requires override_locator, override_citation_text, an existing locator, or no_evidence_attestation=True",
+            )
+
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.fluent_output = correction
+        item.verification_status = VerificationStatus.HUMAN_OVERRIDE
+        # Preserve original priority_tier and priority_score on manual override.
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        item.human_override_reason_code = reason_code
+        item.no_evidence_attestation = bool(request.no_evidence_attestation)
+        if override_locator_dict is not None:
+            item.override_locator = override_locator_dict
+        item.escalation_reason = reason or item.escalation_reason
+        item.escalated_by = actor
+        item.escalated_at = now
+        telemetry = dict(item.gate_telemetry or {})
+        if "citation_match" not in telemetry:
+            telemetry["citation_match"] = 0.0
+        if "critical_logprob" not in telemetry:
+            telemetry["critical_logprob"] = 0.0
+        telemetry["manual_override"] = True
+        if override_citation_text:
+            telemetry["override_citation_text"] = override_citation_text
+        item.gate_telemetry = telemetry
+    elif request.action == "retry":
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
+        item.fluent_output = "Deep vision retry requested — awaiting a fresh source pass."
+        item.escalation_reason = reason or "Deep vision retry requested."
+        item.escalated_by = actor
+        item.escalated_at = now
+    elif request.action == "counsel":
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        # Preserve original priority_tier and priority_score for legal counsel escalation.
+        item.verification_status = VerificationStatus.ESCALATED_LEGAL
+        item.human_override_reason_code = reason_code or item.human_override_reason_code
+        item.escalation_reason = reason or (request.correction or "").strip() or "Referred to legal counsel for review."
+        item.escalation_assignee = assignee or "Legal Counsel"
+        item.escalated_at = now
+        item.escalated_by = actor
+        item.fluent_output = f"Escalated to {item.escalation_assignee}: {item.escalation_reason}"
+    elif request.action == "approve":
+        rescue_text = (item.vision_rescue_text or "").strip()
+        machine_text = (item.machine_extracted_text or "").strip()
+        if machine_text == INSUFFICIENT_EVIDENCE_OUTPUT:
+            machine_text = ""
+        if not rescue_text and not machine_text:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot approve item without machine_extracted_text or vision_rescue_text",
+            )
+
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.VERIFIED
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        correction = (request.correction or "").strip()
+        if rescue_text:
+            item.fluent_output = correction or rescue_text
+            audit_action = "ACCEPT_VISION_RESCUE"
+            audit_metadata_extra = {
+                "vision_rescue_adopted": True,
+                "vision_rescue_text": rescue_text,
+            }
+        else:
+            if correction:
+                item.fluent_output = correction
+            elif item.fluent_output == INSUFFICIENT_EVIDENCE_OUTPUT or "human verification" in item.fluent_output.lower():
+                item.fluent_output = machine_text
+            audit_metadata_extra = {"machine_extracted_adopted": True}
+        item.escalation_reason = reason or item.escalation_reason
+        item.escalated_by = actor
+        item.escalated_at = now
+    else:  # "skip" or "not_applicable"
+        if not note_text and not reason_code:
+            raise HTTPException(
+                status_code=422,
+                detail="A non-empty note or reason_code is required to mark an item not applicable",
+            )
+        if item.original_priority_tier is None:
+            item.original_priority_tier = _enum_value(item.priority_tier)
+        item.previous_state_snapshot = snapshot
+        item.verification_status = VerificationStatus.NOT_APPLICABLE
+        # MUST NOT mutate priority_tier or priority_score for N/A resolution.
+        item.resolved_by_tier = ResolvedByTier.HUMAN_IN_THE_LOOP
+        item.human_override_reason_code = reason_code or item.human_override_reason_code
+        item.fluent_output = note_text or f"Marked not applicable ({reason_code})"
+        item.escalation_reason = reason
+        item.escalated_by = actor
+        item.escalated_at = now
+
+    session.add(
+        AuditLog(
+            document_id=item.document_id,
+            work_item_id=item.id,
+            agent_name="Human Review",
+            action=audit_action,
+            input_hash=payload_hash(request.model_dump()),
+            output_hash=payload_hash(
+                {
+                    "status": _enum_value(item.verification_status),
+                    "priority_tier": _enum_value(item.priority_tier),
+                    "output": item.fluent_output,
+                    "assignee": item.escalation_assignee,
+                    "reason": item.escalation_reason,
+                    "reason_code": item.human_override_reason_code,
+                    "no_evidence_attestation": item.no_evidence_attestation,
+                }
+            ),
+            model_name="human-review-console",
+            processing_time_ms=1,
+            metadata_json={
+                "action": request.action,
+                "actor": actor,
+                "when": now.isoformat(),
+                "reason": item.escalation_reason,
+                "reason_code": reason_code or request.reason_code,
+                "no_evidence_attestation": bool(request.no_evidence_attestation),
+                "override_locator": override_locator_dict,
+                "override_citation_text": override_citation_text or None,
+                "assignee": item.escalation_assignee,
+                "original_priority_tier": item.original_priority_tier,
+                "manual_payload": request.manual_payload,
+                **audit_metadata_extra,
+            },
+        )
+    )
+
+
+@app.post("/api/v1/escalations/batch-resolve", response_model=BatchResolveResponse)
+async def batch_resolve_escalations(request: BatchResolveRequest) -> BatchResolveResponse:
+    unique_ids: list[UUID] = []
+    seen_ids: set[UUID] = set()
+    for wid in request.work_item_ids:
+        if wid not in seen_ids:
+            seen_ids.add(wid)
+            unique_ids.append(wid)
+
+    single_request = EscalationActionRequest(
+        action=request.action,
+        note=request.note,
+        correction=request.correction,
+        manual_payload=request.manual_payload,
+        assignee=request.assignee,
+        actor=request.actor,
+        reason_code=request.reason_code,
+        no_evidence_attestation=request.no_evidence_attestation,
+        override_locator=request.override_locator,
+        override_citation_text=request.override_citation_text,
+    )
+
+    updated_items: list[WorkItem] = []
+    skipped_ids: list[UUID] = []
+    errors: list[dict[str, Any]] = []
+    summary_record: ExecutiveSummaryRecord | None = None
+
+    async with SessionFactory() as session:
+        for wid in unique_ids:
+            item = await session.get(WorkItem, wid)
+            if item is None:
+                skipped_ids.append(wid)
+                errors.append(
+                    {
+                        "work_item_id": str(wid),
+                        "status_code": 404,
+                        "detail": "Escalation not found",
+                    }
+                )
+                continue
+            try:
+                _apply_resolution_to_item(session, item, single_request)
+                updated_items.append(item)
+            except HTTPException as exc:
+                skipped_ids.append(wid)
+                errors.append(
+                    {
+                        "work_item_id": str(wid),
+                        "status_code": exc.status_code,
+                        "detail": str(exc.detail),
+                    }
+                )
+
+        if updated_items:
+            summary_record = await _invalidate_and_regenerate_summary(
+                session,
+                workspace_id=updated_items[0].workspace_id,
+            )
+            await session.commit()
+            for item in updated_items:
+                await session.refresh(item)
+
+    for item in updated_items:
+        await manager.sink.publish(
+            {
+                "type": "work_item",
+                "id": str(item.id),
+                "status": _enum_value(item.verification_status),
+            }
+        )
+    if summary_record is not None:
+        await manager.sink.publish(summary_ws_payload(summary_record))
+
+    return BatchResolveResponse(
+        updated_count=len(updated_items),
+        skipped_ids=skipped_ids,
+        items=updated_items,
+        errors=errors,
+    )
 
 
 @app.post("/api/v1/escalations/{work_item_id}/resolve", response_model=WorkItemResponse)
@@ -445,37 +969,72 @@ async def resolve_escalation(work_item_id: UUID, request: EscalationActionReques
         item = await session.get(WorkItem, work_item_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Escalation not found")
-        if request.action == "manual_correction":
-            correction = (request.correction or "").strip()
-            if not correction:
-                raise HTTPException(status_code=422, detail="A manual correction is required")
-            item.fluent_output = correction
-            item.verification_status = VerificationStatus.VERIFIED
-            item.priority_tier = PriorityTier.P2_MEDIUM
-            item.priority_score = 50
-        elif request.action == "retry":
-            item.verification_status = VerificationStatus.NEEDS_HUMAN_VERIFICATION
-            item.fluent_output = "Deep vision retry requested — awaiting a fresh source pass."
-        else:
-            item.verification_status = VerificationStatus.VERIFIED
-            item.priority_tier = PriorityTier.P3_LOW
-            item.priority_score = 10
-            item.fluent_output = "Marked not applicable by reviewer."
-        session.add(
-            AuditLog(
-                work_item_id=item.id,
-                agent_name="Human Review",
-                action=f"ESCALATION_{request.action.upper()}",
-                input_hash=payload_hash(request.model_dump()),
-                output_hash=payload_hash({"status": item.verification_status.value, "output": item.fluent_output}),
-                model_name="human-review-console",
-                processing_time_ms=1,
-                metadata_json={"action": request.action},
-            )
-        )
+
+        _apply_resolution_to_item(session, item, request)
+        summary_record = await _invalidate_and_regenerate_summary(session, workspace_id=item.workspace_id)
         await session.commit()
         await session.refresh(item)
-        return item
+
+    await manager.sink.publish({"type": "work_item", "id": str(item.id), "status": _enum_value(item.verification_status)})
+    await manager.sink.publish(summary_ws_payload(summary_record))
+    return item
+
+
+@app.post("/api/v1/work-items/{work_item_id}/undo", response_model=WorkItemResponse)
+async def undo_work_item(work_item_id: UUID, request: UndoRequest | None = None) -> WorkItem:
+    async with SessionFactory() as session:
+        item = await session.get(WorkItem, work_item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Work item not found")
+        return await _apply_work_item_undo(
+            session,
+            item,
+            actor=request.actor if request else None,
+            note=request.note if request else None,
+        )
+
+
+@app.get("/api/v1/summary", response_model=ExecutiveSummaryResponse)
+async def get_summary(
+    document_id: str | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> ExecutiveSummaryRecord:
+    parsed_doc_id = _parse_optional_uuid(document_id)
+    async with SessionFactory() as session:
+        record, generated = await _get_or_generate_summary(
+            session,
+            document_id=parsed_doc_id,
+            only_critical=only_critical,
+            latest_only=latest_only,
+        )
+    if generated:
+        await manager.sink.publish(summary_ws_payload(record))
+    return record
+
+
+@app.post("/api/v1/summary/generate", response_model=ExecutiveSummaryResponse)
+async def generate_summary(
+    request: SummaryGenerateRequest | None = None,
+    document_id: str | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> ExecutiveSummaryRecord:
+    raw_doc_id = request.document_id if request and request.document_id is not None else document_id
+    parsed_doc_id = _parse_optional_uuid(raw_doc_id)
+    crit_flag = request.only_critical if request is not None else only_critical
+    latest_flag = request.latest_only if request is not None else latest_only
+
+    async with SessionFactory() as session:
+        record, _ = await _get_or_generate_summary(
+            session,
+            document_id=parsed_doc_id,
+            only_critical=crit_flag,
+            latest_only=latest_flag,
+            force_regenerate=True,
+        )
+    await manager.sink.publish(summary_ws_payload(record))
+    return record
 
 
 @app.post("/api/v1/sandbox/check", response_model=SandboxResponse)
@@ -501,81 +1060,407 @@ async def sandbox_check(request: SandboxRequest) -> SandboxResponse:
     if request.test == "citation":
         quote = request.quote or ""
         gate = run_verification_gate([quote], ["Access control requires multifactor authentication for privileged accounts."])
-        return await record(SandboxResponse(
-            passed=gate.passed, status="VERIFIED" if gate.passed else VerificationStatus.INSUFFICIENT_EVIDENCE.value,
-            priority_tier="P2_MEDIUM" if gate.passed else PriorityTier.P0_CRITICAL.value,
-            message="Citation accepted by the corpus gate." if gate.passed else INSUFFICIENT_EVIDENCE_OUTPUT,
-            score=gate.best_citation_score,
-        ))
+        message = (
+            "Citation accepted by the corpus gate."
+            if gate.passed
+            else (gate.fluent_output or INSUFFICIENT_EVIDENCE_OUTPUT)
+        )
+        return await record(
+            SandboxResponse(
+                passed=gate.passed,
+                status=gate.verification_status.value,
+                priority_tier=gate.priority_tier.value,
+                message=message,
+                score=gate.best_citation_score,
+            )
+        )
     if request.test == "logprob":
         probability = request.probability if request.probability is not None else 0.0
         passed = probability >= 0.92
-        return await record(SandboxResponse(
-            passed=passed, status="VERIFIED" if passed else VerificationStatus.NEEDS_HUMAN_VERIFICATION.value,
-            priority_tier="P2_MEDIUM" if passed else PriorityTier.P0_CRITICAL.value,
-            message="Critical entity confidence clears the gate." if passed else "Critical entity confidence requires human verification.",
-            score=probability * 100,
-        ))
+        return await record(
+            SandboxResponse(
+                passed=passed,
+                status="VERIFIED" if passed else VerificationStatus.NEEDS_HUMAN_VERIFICATION.value,
+                priority_tier="P2_MEDIUM" if passed else PriorityTier.P0_CRITICAL.value,
+                message="Critical entity confidence clears the gate." if passed else "Critical entity confidence requires human verification.",
+                score=probability * 100,
+            )
+        )
     expected = request.expected_checksum or ""
     actual = request.actual_checksum or ""
     passed = expected == actual and bool(expected)
-    return await record(SandboxResponse(
-        passed=passed, status="VERIFIED" if passed else VerificationStatus.INSUFFICIENT_EVIDENCE.value,
-        priority_tier="P2_MEDIUM" if passed else PriorityTier.P0_CRITICAL.value,
-        message="AST checksum confirms completeness." if passed else "AST checksum mismatch: a source row or paragraph is missing.",
-        score=100.0 if passed else 0.0,
-    ))
+    return await record(
+        SandboxResponse(
+            passed=passed,
+            status="VERIFIED" if passed else VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+            priority_tier="P2_MEDIUM" if passed else PriorityTier.P0_CRITICAL.value,
+            message="AST checksum confirms completeness." if passed else "AST checksum mismatch: a source row or paragraph is missing.",
+            score=100.0 if passed else 0.0,
+        )
+    )
 
 
 @app.get("/api/v1/export/questionnaire.xlsx")
-async def export_questionnaire() -> FileResponse:
+async def export_questionnaire() -> Response:
     from bert.ingestion.xlsx_handler import XLSXHandler
 
     async with SessionFactory() as session:
-        result = await session.execute(select(WorkItem).order_by(WorkItem.created_at))
-        items = list(result.scalars().all())
-    source = DATA_DIR / "Enterprise_Security_Questionnaire.xlsx"
-    if not source.exists():
-        await asyncio.to_thread(_write_demo_fixtures)
-    await asyncio.to_thread(
-        XLSXHandler.write_back,
-        source,
-        [
+        items = list((await session.execute(select(WorkItem).order_by(WorkItem.created_at))).scalars().all())
+        xlsx_doc = (
+            await session.execute(
+                select(Document).where(Document.source_format == SourceFormat.XLSX).order_by(desc(Document.created_at))
+            )
+        ).scalars().first()
+        question_row_map: dict[str, int] = {}
+        target_sheet: str | None = None
+        if xlsx_doc is not None:
+            q_nodes = (
+                await session.execute(select(ASTNode).where(ASTNode.document_id == xlsx_doc.id).order_by(ASTNode.node_order))
+            ).scalars().all()
+            sheets_seen: set[str] = set()
+            for node in q_nodes:
+                q_text = str((node.structured_payload or {}).get("row_data", {}).get("Question") or "").strip()
+                row_idx = (node.locator or {}).get("row") or (node.structured_payload or {}).get("row_index")
+                sheet_val = (node.locator or {}).get("sheet") or (node.structured_payload or {}).get("sheet_name")
+                if sheet_val:
+                    sheets_seen.add(str(sheet_val))
+                if q_text and row_idx:
+                    question_row_map[q_text] = int(row_idx)
+            if len(sheets_seen) == 1:
+                target_sheet = next(iter(sheets_seen))
+
+    source: Path | None = None
+    if xlsx_doc is not None and xlsx_doc.storage_path and Path(xlsx_doc.storage_path).is_file():
+        source = Path(xlsx_doc.storage_path)
+    if source is None:
+        source = DATA_DIR / "Enterprise_Security_Questionnaire.xlsx"
+        if not source.exists():
+            await asyncio.to_thread(_write_demo_fixtures)
+
+    questionnaire_items = [item for item in items if item.item_type == "QUESTIONNAIRE_ROW"] or items
+    rows_payload: list[dict[str, Any]] = []
+    for index, item in enumerate(questionnaire_items):
+        matched_row = question_row_map.get(item.prompt_or_question.strip(), index + 2)
+        status_val = _enum_value(item.verification_status)
+        effective_priority = _enum_value(item.priority_tier)
+        original_priority = item.original_priority_tier or effective_priority
+        reason_code_val = item.human_override_reason_code or (
+            item.escalation_reason if status_val in {"ESCALATED_LEGAL", "NOT_APPLICABLE"} else ""
+        ) or ""
+        rows_payload.append(
             {
-                "row_index": index + 2,
+                "row_index": matched_row,
                 "fluent_output": item.fluent_output,
-                "verification_status": _enum_value(item.verification_status),
+                "verification_status": status_val,
+                "original_priority_tier": original_priority,
+                "effective_priority_tier": effective_priority,
+                "review_warning": _export_review_warning(item),
+                "reason_code": reason_code_val,
+                "reviewer_note": item.escalation_reason or "",
+                "escalation_assignee": item.escalation_assignee or "",
+                "escalation_reason": item.escalation_reason or "",
+                "weak_evidence": bool(item.weak_evidence),
+                "weak_evidence_reason": item.weak_evidence_reason or "",
             }
-            for index, item in enumerate(items)
-        ],
+        )
+
+    xlsx_bytes = await asyncio.to_thread(XLSXHandler.build_export_bytes, source, rows_payload, sheet_name=target_sheet)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="BERT_Completed_Questionnaire.xlsx"'},
     )
-    return FileResponse(source, filename="BERT_Completed_Questionnaire.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.get("/api/v1/export/summary.md", response_class=PlainTextResponse)
-async def export_summary() -> str:
+async def export_summary(
+    document_id: str | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> str:
+    parsed_doc_id = _parse_optional_uuid(document_id)
     async with SessionFactory() as session:
-        items = list((await session.execute(select(WorkItem).order_by(WorkItem.priority_score.desc()))).scalars().all())
-    verified = sum(_enum_value(item.verification_status) == VerificationStatus.VERIFIED.value for item in items)
-    lines = [
-        "# BERT Executive Review Summary",
-        "",
-        f"- Work items processed: {len(items)}",
-        f"- Evidence-verified items: {verified}",
-        f"- Open human escalations: {len(items) - verified}",
-        "",
-        "## Findings",
-    ]
-    lines.extend(f"- **{_enum_value(item.priority_tier)}** · {item.category}: {item.prompt_or_question} — {item.fluent_output}" for item in items)
-    return "\n".join(lines) + "\n"
+        record, _ = await _get_or_generate_summary(
+            session,
+            document_id=parsed_doc_id,
+            only_critical=only_critical,
+            latest_only=latest_only,
+        )
+    return record.markdown
+
+
+def _parse_optional_uuid(value: str | UUID | None) -> UUID | None:
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    try:
+        return UUID(cleaned)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Invalid UUID parameter") from error
+
+
+def _escalation_display_reason(item: WorkItem) -> str:
+    if item.escalation_reason:
+        return item.escalation_reason
+    if _enum_value(item.verification_status) == VerificationStatus.ESCALATED_LEGAL.value:
+        return "Flagged for legal counsel review."
+    return "Evidence gate failed; source proof is insufficient for an autonomous answer."
+
+
+def _export_review_warning(item: WorkItem) -> str:
+    status = _enum_value(item.verification_status)
+    weak = bool(item.weak_evidence)
+    if status == VerificationStatus.INSUFFICIENT_EVIDENCE.value:
+        return "UNRESOLVED / INSUFFICIENT_EVIDENCE: Missing verified corpus proof — manual review required"
+    if status == VerificationStatus.NEEDS_HUMAN_VERIFICATION.value:
+        suffix = f" ({item.weak_evidence_reason})" if weak and item.weak_evidence_reason else ""
+        return f"UNRESOLVED / NEEDS_HUMAN_VERIFICATION: Requires reviewer verification{suffix}"
+    if status == VerificationStatus.ESCALATED_LEGAL.value:
+        return f"ESCALATED_LEGAL: Referred to {item.escalation_assignee or 'Legal Counsel'} — unresolved"
+    if status == VerificationStatus.HUMAN_OVERRIDE.value:
+        return "HUMAN_OVERRIDE: Manually overridden by reviewer (unverified by deterministic gate)"
+    if status == VerificationStatus.NOT_APPLICABLE.value:
+        return "NOT_APPLICABLE: Marked N/A by reviewer (original priority preserved)"
+    if weak:
+        return f"WEAK_EVIDENCE: {item.weak_evidence_reason or 'Flagged for weak supporting quote'}"
+    return ""
+
+
+def _filter_work_items_for_scope(
+    documents: list[Document],
+    work_items: list[WorkItem],
+    *,
+    document_id: UUID | None = None,
+    only_critical: bool = False,
+    latest_only: bool = False,
+) -> list[WorkItem]:
+    doc_by_id = {doc.id: doc for doc in documents}
+    superseded_doc_ids = {str(doc.id) for doc in documents if not doc.is_latest_version}
+    superseded_filenames = {doc.filename for doc in documents if not doc.is_latest_version}
+
+    def matches_doc(item: WorkItem, target_id: UUID) -> bool:
+        if item.document_id == target_id:
+            return True
+        target_doc = doc_by_id.get(target_id)
+        target_str = str(target_id)
+        for cit in item.verified_citations or []:
+            loc = cit.get("locator") or {}
+            if loc.get("doc_id") == target_str:
+                return True
+            if target_doc is not None and cit.get("document_filename") == target_doc.filename:
+                return True
+        tc = item.temporal_conflict or {}
+        return tc.get("newer_doc_id") == target_str or tc.get("older_doc_id") == target_str
+
+    def matches_latest(item: WorkItem) -> bool:
+        if item.item_type == "TEMPORAL_CONFLICT":
+            return True
+        if item.document_id and str(item.document_id) in superseded_doc_ids:
+            return False
+        citations = item.verified_citations or []
+        if citations:
+            return not all(
+                (cit.get("locator") or {}).get("doc_id") in superseded_doc_ids
+                or cit.get("document_filename") in superseded_filenames
+                for cit in citations
+            )
+        return True
+
+    filtered = list(work_items)
+    if document_id is not None:
+        filtered = [item for item in filtered if matches_doc(item, document_id)]
+    if latest_only:
+        filtered = [item for item in filtered if matches_latest(item)]
+    if only_critical:
+        filtered = [
+            item for item in filtered if _enum_value(item.priority_tier) == PriorityTier.P0_CRITICAL.value
+        ]
+    return filtered
+
+
+def _snapshot_work_item(item: WorkItem) -> dict[str, Any]:
+    return {
+        "verification_status": _enum_value(item.verification_status),
+        "priority_tier": _enum_value(item.priority_tier),
+        "priority_score": int(item.priority_score),
+        "fluent_output": item.fluent_output,
+        "resolved_by_tier": _enum_value(item.resolved_by_tier),
+        "escalation_reason": item.escalation_reason,
+        "escalation_assignee": item.escalation_assignee,
+        "escalated_at": item.escalated_at.isoformat() if item.escalated_at else None,
+        "escalated_by": item.escalated_by,
+        "original_priority_tier": item.original_priority_tier,
+        "human_override_reason_code": item.human_override_reason_code,
+        "no_evidence_attestation": bool(item.no_evidence_attestation),
+        "override_locator": item.override_locator,
+        "weak_evidence": bool(item.weak_evidence),
+        "weak_evidence_reason": item.weak_evidence_reason,
+        "evidence_quality": item.evidence_quality,
+        "machine_extracted_text": item.machine_extracted_text,
+        "vision_rescue_text": item.vision_rescue_text,
+        "has_vision_rescue": bool(item.has_vision_rescue),
+        "gate_telemetry": dict(item.gate_telemetry or {}),
+    }
+
+
+def _apply_undo_mutations(
+    session: AsyncSession,
+    item: WorkItem,
+    *,
+    actor: str | None = None,
+    note: str | None = None,
+) -> None:
+    snap = item.previous_state_snapshot
+    if not snap:
+        raise HTTPException(status_code=409, detail="No previous state snapshot available to undo")
+
+    item.verification_status = VerificationStatus(snap["verification_status"])
+    item.priority_tier = PriorityTier(snap["priority_tier"])
+    item.priority_score = int(snap["priority_score"])
+    item.fluent_output = str(snap["fluent_output"])
+    restored_tier = snap.get("resolved_by_tier")
+    try:
+        item.resolved_by_tier = ResolvedByTier(restored_tier)
+    except Exception:
+        item.resolved_by_tier = restored_tier  # type: ignore[assignment]
+    item.escalation_reason = snap.get("escalation_reason")
+    item.escalation_assignee = snap.get("escalation_assignee")
+    escalated_at_raw = snap.get("escalated_at")
+    item.escalated_at = datetime.fromisoformat(escalated_at_raw) if escalated_at_raw else None
+    item.escalated_by = snap.get("escalated_by")
+    item.original_priority_tier = snap.get("original_priority_tier")
+    item.human_override_reason_code = snap.get("human_override_reason_code")
+    item.no_evidence_attestation = bool(snap.get("no_evidence_attestation", False))
+    item.override_locator = snap.get("override_locator")
+    item.weak_evidence = bool(snap.get("weak_evidence", False))
+    item.weak_evidence_reason = snap.get("weak_evidence_reason")
+    item.evidence_quality = str(snap.get("evidence_quality") or "missing")
+    if "machine_extracted_text" in snap:
+        item.machine_extracted_text = snap.get("machine_extracted_text")
+    if "vision_rescue_text" in snap:
+        item.vision_rescue_text = snap.get("vision_rescue_text")
+    if "has_vision_rescue" in snap:
+        item.has_vision_rescue = bool(snap.get("has_vision_rescue", False))
+    if "gate_telemetry" in snap:
+        item.gate_telemetry = dict(snap["gate_telemetry"] or {})
+    item.previous_state_snapshot = None
+
+    now = utc_now()
+    actor_name = (actor or "").strip() or "Compliance Reviewer"
+    session.add(
+        AuditLog(
+            document_id=item.document_id,
+            work_item_id=item.id,
+            agent_name="Human Review",
+            action="ESCALATION_UNDO",
+            input_hash=payload_hash({"work_item_id": str(item.id), "actor": actor_name, "note": note}),
+            output_hash=payload_hash(
+                {
+                    "status": _enum_value(item.verification_status),
+                    "priority_tier": _enum_value(item.priority_tier),
+                    "output": item.fluent_output,
+                }
+            ),
+            model_name="human-review-console",
+            processing_time_ms=1,
+            metadata_json={
+                "action": "undo",
+                "actor": actor_name,
+                "when": now.isoformat(),
+                "note": note,
+                "restored_status": _enum_value(item.verification_status),
+                "restored_priority_tier": _enum_value(item.priority_tier),
+            },
+        )
+    )
+
+
+async def _apply_work_item_undo(
+    session: AsyncSession,
+    item: WorkItem,
+    *,
+    actor: str | None = None,
+    note: str | None = None,
+) -> WorkItem:
+    _apply_undo_mutations(session, item, actor=actor, note=note)
+    summary_record = await _invalidate_and_regenerate_summary(session, workspace_id=item.workspace_id)
+    await session.commit()
+    await session.refresh(item)
+
+    await manager.sink.publish({"type": "work_item", "id": str(item.id), "status": _enum_value(item.verification_status)})
+    await manager.sink.publish(summary_ws_payload(summary_record))
+    return item
+
+
+async def _invalidate_and_regenerate_summary(
+    session: AsyncSession,
+    *,
+    workspace_id: UUID | None = None,
+) -> ExecutiveSummaryRecord:
+    await session.execute(update(ExecutiveSummaryRecord).values(is_stale=True))
+    return await persist_executive_summary(
+        session,
+        workspace_id=workspace_id,
+        mark_prior_stale=False,
+    )
+
+
+async def _get_or_generate_summary(
+    session: AsyncSession,
+    *,
+    document_id: UUID | None,
+    only_critical: bool,
+    latest_only: bool,
+    force_regenerate: bool = False,
+) -> tuple[ExecutiveSummaryRecord, bool]:
+    if not force_regenerate:
+        doc_filter = (
+            ExecutiveSummaryRecord.document_id.is_(None)
+            if document_id is None
+            else ExecutiveSummaryRecord.document_id == document_id
+        )
+        existing = (
+            await session.execute(
+                select(ExecutiveSummaryRecord)
+                .where(
+                    doc_filter,
+                    ExecutiveSummaryRecord.only_critical == only_critical,
+                    ExecutiveSummaryRecord.latest_only == latest_only,
+                    ExecutiveSummaryRecord.is_stale == False,  # noqa: E712
+                )
+                .order_by(desc(ExecutiveSummaryRecord.created_at))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing, False
+
+    record = await persist_executive_summary(
+        session,
+        document_id=document_id,
+        only_critical=only_critical,
+        latest_only=latest_only,
+        mark_prior_stale=False,
+    )
+    await session.commit()
+    await session.refresh(record)
+    return record, True
 
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
 
 
-def date_for_filename(filename: str) -> date:
-    return date(2023 if "2023" in filename else 2026, 1, 1)
+def date_for_filename(filename: str) -> date | None:
+    if "2023" in filename:
+        return date(2023, 1, 1)
+    if "2026" in filename:
+        return date(2026, 1, 1)
+    return None
 
 
 _COPILOT_STOP_WORDS = frozenset(
@@ -614,8 +1499,6 @@ def _rank_copilot_nodes(
         score = len(overlap) / len(query_terms)
         if score >= 0.20:
             ranked.append((score, node, document))
-    # Prefer the fuller policy clause over a compact table row when both carry
-    # the same question terms.  The selected text remains verbatim evidence.
     ranked.sort(key=lambda item: (item[0], len(item[1].verbatim_text), -item[1].node_order), reverse=True)
     return ranked
 
@@ -629,8 +1512,8 @@ def _insufficient_copilot_response() -> CopilotChatResponse:
     )
 
 
-def _pdf_escape(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+def _pdf_escape(text_val: str) -> str:
+    return text_val.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def _write_binary_pdf(path: Path, pages: list[list[str]]) -> None:
@@ -697,13 +1580,18 @@ def _write_demo_fixtures() -> list[tuple[str, SourceFormat, Path]]:
         _write_binary_pdf(path, [lines])
         files.append((filename, SourceFormat.DIGITAL_PDF, path))
     json_path = DATA_DIR / "aws_iam_prod_config.json"
-    json_path.write_text(json.dumps({
-        "rules": {
-            "production-read": {"effect": "Allow", "action": "s3:GetObject", "resource": "arn:aws:s3:::prod/*"},
-            "wildcard-admin": {"effect": "Allow", "action": "s3:*", "resource": "*"},
-        },
-        "owner": "Platform Security",
-    }), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(
+            {
+                "rules": {
+                    "production-read": {"effect": "Allow", "action": "s3:GetObject", "resource": "arn:aws:s3:::prod/*"},
+                    "wildcard-admin": {"effect": "Allow", "action": "s3:*", "resource": "*"},
+                },
+                "owner": "Platform Security",
+            }
+        ),
+        encoding="utf-8",
+    )
     files.append((json_path.name, SourceFormat.JSON_CONFIG, json_path))
     xlsx_path = DATA_DIR / "Enterprise_Security_Questionnaire.xlsx"
     from openpyxl import Workbook

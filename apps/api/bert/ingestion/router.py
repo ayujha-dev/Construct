@@ -48,9 +48,9 @@ def stream_file(file_path: Path, document_id: UUID) -> Iterator[ParsedNode]:
     if extension == ".pdf":
         return DoclingParser().stream_nodes(file_path, document_id)
     if extension == ".json":
-        return JSONStreamer().stream_nodes(file_path)
+        return JSONStreamer().stream_nodes(file_path, document_id)
     if extension == ".xlsx":
-        return XLSXHandler().stream_nodes(file_path)
+        return XLSXHandler().stream_nodes(file_path, document_id)
     if extension in {".txt", ".md"}:
         return DoclingParser().stream_nodes(file_path, document_id)
     raise ValueError(f"Unsupported file extension: {extension}")

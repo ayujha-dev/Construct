@@ -55,8 +55,11 @@ export const tier1Tests = [
         if (auditTabBtn) auditTabBtn.click();
         await new Promise((r) => setTimeout(r, 400));
 
-        // Click a finding card
-        const findingCard = document.querySelector("[data-testid='audit-finding-card'], .audit-finding, .cursor-pointer");
+        // Click a finding card inside the inspector audit tab (prioritize testid before generic fallback)
+        const findingCard =
+          document.querySelector("[data-testid='audit-finding-card']") ||
+          document.querySelector(".audit-finding") ||
+          document.querySelector("[data-testid='right-inspector'] .cursor-pointer");
         if (findingCard) findingCard.click();
         await new Promise((r) => setTimeout(r, 400));
 
@@ -277,20 +280,47 @@ export const tier1Tests = [
     name: "Escalation Resolution approve",
     tier: 1,
     feature: "F03",
-    description: "POST /api/v1/escalations/{id}/resolve with {action: 'approve'} returns HTTP 200 OK with VERIFIED status",
+    description: "POST /api/v1/escalations/{id}/resolve with {action: 'approve'} rejects missing-proof items (422) and approves items with vision_rescue_text/machine_extracted_text (200 VERIFIED)",
     run: async ({ api }) => {
       await api.seedDemo();
       const escalationsRes = await api.getEscalations();
       assert(escalationsRes.ok && escalationsRes.data.length > 0, "Seeded escalations exist");
 
-      const workItemId = escalationsRes.data[0].work_item_id;
-      const res = await api.resolveEscalation(workItemId, {
-        action: "approve",
-        correction: "Approved via automated E2E test",
-      });
+      const emptyItem = escalationsRes.data.find(
+        (e) => !e.machine_extracted_text && !e.vision_rescue_text
+      );
+      if (emptyItem) {
+        const rejectRes = await api.resolveEscalation(emptyItem.work_item_id, {
+          action: "approve",
+          correction: "Should be rejected without machine/rescue text",
+        });
+        assertEqual(
+          rejectRes.status,
+          422,
+          `Expected HTTP 422 on approve without machine/rescue text, got ${rejectRes.status}`
+        );
+      }
 
-      // Assert contract
-      assertEqual(res.status, 200, `Expected HTTP 200 on approve, got ${res.status}: ${JSON.stringify(res.data)}`);
+      // Upload and process a low-confidence stamp document so an escalation has vision_rescue_text
+      const up = await api.uploadTextDocument(
+        "f03_vision_rescue.txt",
+        "[LOW_CONFIDENCE] STAMP NOTE: Signed compliance addendum dated 2026-03-01.\n"
+      );
+      assert(up.ok && up.data?.id, `Uploaded rescue doc (status ${up.status})`);
+      const job = await api.startJob({ document_id: up.data.id });
+      assert(job.ok && job.data?.job_id, "Started review job for rescue doc");
+      await api.waitForJob(job.data.job_id);
+
+      const docEsc = await api.getEscalations({ documentId: up.data.id });
+      const approvable = (docEsc.data || []).find(
+        (e) => Boolean(e.vision_rescue_text) || Boolean(e.machine_extracted_text)
+      );
+      assert(Boolean(approvable), "Processed scan/low-OCR escalation exposes vision_rescue_text or machine_extracted_text");
+
+      const res = await api.resolveEscalation(approvable.work_item_id, {
+        action: "approve",
+      });
+      assertEqual(res.status, 200, `Expected HTTP 200 on approve with rescue/machine text, got ${res.status}: ${JSON.stringify(res.data)}`);
       assertEqual(res.data?.verification_status, "VERIFIED", "Status is VERIFIED");
     },
   },
@@ -328,11 +358,17 @@ export const tier1Tests = [
       const workItemId = escalationsRes.data[0].work_item_id;
       const res = await api.resolveEscalation(workItemId, {
         action: "manual_correction",
-        correction: "Updated compliance text",
+        correction: "Updated compliance control evidence verified by engineering",
+        reason_code: "SME_ATTESTATION",
+        no_evidence_attestation: true,
       });
 
-      assertEqual(res.status, 200, `Expected HTTP 200 on manual_correction, got ${res.status}`);
-      assertEqual(res.data?.fluent_output, "Updated compliance text", "Fluent output updated");
+      assertEqual(res.status, 200, `Expected HTTP 200 on manual_correction, got ${res.status}: ${JSON.stringify(res.data)}`);
+      assertEqual(
+        res.data?.fluent_output,
+        "Updated compliance control evidence verified by engineering",
+        "Fluent output updated"
+      );
     },
   },
   {
@@ -362,10 +398,13 @@ export const tier1Tests = [
       const escalationsRes = await api.getEscalations();
       const workItemId = escalationsRes.data[0].work_item_id;
 
-      await api.resolveEscalation(workItemId, {
+      const res = await api.resolveEscalation(workItemId, {
         action: "manual_correction",
-        correction: "AuditLog validation correction",
+        correction: "AuditLog validation correction verified by compliance reviewer",
+        reason_code: "SME_ATTESTATION",
+        no_evidence_attestation: true,
       });
+      assertEqual(res.status, 200, `Expected HTTP 200 on AuditLog manual_correction, got ${res.status}`);
 
       const auditRes = await api.getAuditLog();
       assert(auditRes.ok, "Audit log endpoint responsive");
@@ -447,7 +486,15 @@ export const tier1Tests = [
     description: "Resolving work item updates badge instantaneously without waiting for periodic poll",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
+      const up = await api.uploadTextDocument(
+        "f04_vision_rescue.txt",
+        "[LOW_CONFIDENCE] STAMP NOTE: Signed addendum dated 2026-03-01.\n"
+      );
+      assert(up.ok && up.data?.id, "Uploaded rescue doc for TC-F04-04");
+      const job = await api.startJob({ document_id: up.data.id });
+      await api.waitForJob(job.data.job_id);
       await page.goto(`${webUrl}/workspace`);
+      await sleep(600);
 
       const hasActionBtn = await page.evaluate(() => {
         const acceptBtn = Array.from(document.querySelectorAll("button")).find((b) =>
@@ -455,7 +502,7 @@ export const tier1Tests = [
         );
         return Boolean(acceptBtn);
       });
-      assert(hasActionBtn, "Interactive escalation action buttons rendered in UI");
+      assert(hasActionBtn, "Interactive Accept Vision Rescue Text action button rendered for rescue item in UI");
     },
   },
   {
@@ -492,14 +539,14 @@ export const tier1Tests = [
     name: "Document Selection Sync to URL",
     tier: 1,
     feature: "F05",
-    description: "Selecting a document from sidebar updates browser URL to include ?doc=<document_id>",
+    description: "Selecting a document from sidebar updates browser URL to include ?workspace= and ?file=<document_id>",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace`);
 
       const urlUpdate = await page.evaluate(async () => {
         const docBtn = Array.from(document.querySelectorAll("button")).find((b) =>
-          b.textContent.includes("Legacy_InfoSec_Policy_2023.pdf")
+          b.textContent.includes("Legacy_InfoSec_Policy_2023.pdf") || b.textContent.includes(".pdf")
         );
         if (!docBtn) return { found: false };
         docBtn.click();
@@ -508,7 +555,11 @@ export const tier1Tests = [
       });
 
       assert(urlUpdate.found, "Document button found in sidebar");
-      assertIncludes(urlUpdate.url, "doc=", "URL contains ?doc= parameter upon selection");
+      assertIncludes(urlUpdate.url, "workspace=", "URL contains stable ?workspace= parameter");
+      assert(
+        urlUpdate.url.includes("file=") || urlUpdate.url.includes("doc="),
+        `URL contains ?file= (or legacy ?doc=) parameter upon selection, got ${urlUpdate.url}`
+      );
     },
   },
   {
@@ -520,8 +571,9 @@ export const tier1Tests = [
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace?page=3`);
+      await sleep(500);
       const url = await page.evaluate(() => window.location.href);
-      assertIncludes(url, "page=3", "URL reflects page parameter");
+      assertIncludes(url, "page=3", "URL preserves page=3 parameter across cold load");
     },
   },
   {
@@ -529,19 +581,21 @@ export const tier1Tests = [
     name: "Deep Link Initial Loading",
     tier: 1,
     feature: "F05",
-    description: "Navigating directly to /workspace?doc=<id>&page=2 mounts workspace with document selected and page 2",
+    description: "Navigating directly to /workspace?doc=<id>&page=2 (or ?file=<id>&page=2) mounts workspace with document selected and page 2",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       const docsRes = await api.getDocuments();
       const docId = docsRes.data[0].id;
 
       await page.goto(`${webUrl}/workspace?doc=${docId}&page=2`);
+      await sleep(500);
       const state = await page.evaluate(() => ({
         url: window.location.href,
         hasViewer: Boolean(document.querySelector(".pdf-viewer, canvas, .spreadsheet-viewer, main")),
       }));
 
-      assertIncludes(state.url, docId, "URL preserves doc parameter");
+      assertIncludes(state.url, docId, "URL preserves backward-compatible doc deep-link parameter");
+      assertIncludes(state.url, "page=2", "URL preserves page parameter");
       assert(state.hasViewer, "Workspace mounts viewer on deep link");
     },
   },
@@ -550,7 +604,7 @@ export const tier1Tests = [
     name: "Citation Deep Link Reflection",
     tier: 1,
     feature: "F05",
-    description: "Clicking a citation card updates both doc and page parameters in browser URL",
+    description: "Clicking a citation card updates document (?file= or ?doc=), workspace, and page parameters in browser URL",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       await page.goto(`${webUrl}/workspace`);
@@ -565,6 +619,7 @@ export const tier1Tests = [
       });
 
       assert(typeof result === "string", "Query string retrieved");
+      assertIncludes(result, "workspace=", "Citation navigation preserves workspace parameter");
     },
   },
   {
@@ -572,15 +627,15 @@ export const tier1Tests = [
     name: "Browser History Navigation",
     tier: 1,
     feature: "F05",
-    description: "Browser Back button restores previous document selection and page offset",
+    description: "Browser Back button restores previous document/file selection and page offset",
     run: async ({ page, api, webUrl }) => {
       await api.seedDemo();
       const docsRes = await api.getDocuments();
       const doc1 = docsRes.data[0].id;
       const doc2 = docsRes.data[1].id;
 
-      await page.goto(`${webUrl}/workspace?doc=${doc1}&page=1`);
-      await page.goto(`${webUrl}/workspace?doc=${doc2}&page=2`);
+      await page.goto(`${webUrl}/workspace?workspace=default&file=${doc1}&page=1`);
+      await page.goto(`${webUrl}/workspace?workspace=default&file=${doc2}&page=2`);
 
       await page.evaluate(() => {
         window.history.back();
@@ -588,7 +643,7 @@ export const tier1Tests = [
       await sleep(800);
       const backUrl = await page.evaluate(() => window.location.href);
 
-      assertIncludes(backUrl, doc1, "History back navigates to previous document state");
+      assertIncludes(backUrl, doc1, "History back navigates to previous file state");
     },
   },
 
@@ -1122,6 +1177,12 @@ export const tier1Tests = [
       await page.goto(`${webUrl}/workspace`);
 
       const userSelect = await page.evaluate(async () => {
+        const viewerBtn = Array.from(document.querySelectorAll("button")).find(
+          (b) => b.textContent.trim() === "Viewer" || b.textContent.trim() === "Visual"
+        );
+        if (viewerBtn) viewerBtn.click();
+        await new Promise((r) => setTimeout(r, 600));
+
         const textLayer = document.querySelector(".textLayer");
         if (!textLayer) return "none";
         return window.getComputedStyle(textLayer).userSelect;

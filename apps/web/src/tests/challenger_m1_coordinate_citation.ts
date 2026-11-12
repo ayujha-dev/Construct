@@ -9,9 +9,13 @@ if (typeof window === "undefined") {
   (globalThis as any).window = globalThis;
 }
 
-import { useBertStore, type BertState } from "../store/useBertStore";
+import { useBertStore, registerWorkspaceNavigator } from "../store/useBertStore";
 import { buildDemoCorpus } from "../store/demoCorpusService";
-import type { CitationMatch } from "../types/bert";
+import {
+  convertPdfBboxToViewportRect,
+  createFallbackPdfViewport,
+  formatLocatorDisplay,
+} from "../lib/evidenceLocators";
 
 let totalAsserts = 0;
 let failedAsserts = 0;
@@ -441,6 +445,73 @@ async function runSuite3_DualSignatureCompatibility() {
 }
 
 // ============================================================================
+// SUITE 4: Phase 2 Locators, Rotation/CropBox/Non-Letter & Confidence Guard
+// ============================================================================
+async function runSuite4_Phase2EvidenceLocators() {
+  console.log("\n=== SUITE 4: Phase 2 Evidence Locators, Viewport Math & Cross-Route Hook ===");
+
+  // 4.1 960x540 non-Letter slide geometry (pitch deck) + Zoom scale 1.5
+  const slideVp1 = createFallbackPdfViewport(960, 540, 0, 1.0);
+  const slideVp15 = createFallbackPdfViewport(960, 540, 0, 1.5);
+  const slideBox = { x0: 80, y0: 420, x1: 480, y1: 460 };
+  const slideRect1 = convertPdfBboxToViewportRect(slideVp1, slideBox);
+  const slideRect15 = convertPdfBboxToViewportRect(slideVp15, slideBox);
+  assert(Math.abs(slideRect1.top - (540 - 460)) < 1e-4, `960x540 slide top = 80px (got ${slideRect1.top})`);
+  assert(Math.abs(slideRect15.top - slideRect1.top * 1.5) < 1e-4, `960x540 scales linearly at 1.5x`);
+
+  // 4.2 Rotated 90/180/270 degrees + CropBox viewport transforms
+  const rot90 = createFallbackPdfViewport(612, 792, 90, 1.0);
+  assert(rot90.width === 792 && rot90.height === 612, `90deg rotation swaps width/height to 792x612`);
+  const rect90 = convertPdfBboxToViewportRect(rot90, { x0: 100, y0: 600, x1: 200, y1: 650 });
+  assert(rect90.width >= 4 && rect90.height >= 4 && rect90.right <= 792 && rect90.bottom <= 612, `90deg rotated rect stays inside rotated viewport`);
+
+  const cropped = createFallbackPdfViewport(612, 792, 0, 1.0, [36, 36, 576, 756]);
+  assert(cropped.width === 540 && cropped.height === 720, `CropBox reduces viewport to 540x720`);
+  const croppedRect = convertPdfBboxToViewportRect(cropped, { x0: 72, y0: 700, x1: 272, y1: 720 });
+  assert(Math.abs(croppedRect.left - 36) < 1e-4, `CropBox X offset translates x0=72 -> left=36 (got ${croppedRect.left})`);
+  assert(Math.abs(croppedRect.top - 36) < 1e-4, `CropBox Y offset translates y1=720 -> top=36 (got ${croppedRect.top})`);
+
+  // 4.3 Non-overwrite confidence bug regression (explicit citation_match not clobbered by node.ocr_confidence)
+  const demo = buildDemoCorpus();
+  useBertStore.setState({
+    documents: demo.documents,
+    nodesByDocument: demo.nodesByDocument,
+    workItems: demo.workItems,
+    selectedDocumentId: demo.documents[0].id,
+  });
+  const docScan = demo.documents.find((d) => d.filename.includes("Scanned_Addendum"))!;
+  const nodeScan = demo.nodesByDocument[docScan.id].find((n) => n.section_path?.includes("Bottom Margin"))!;
+  assert(nodeScan.locator?.source_type === "pdf", `Demo scan node carries full PdfEvidenceLocator`);
+
+  let crossRouteCall: { docId?: string | null; page?: number | null; nodeId?: string | null } | null = null;
+  registerWorkspaceNavigator((opts) => {
+    crossRouteCall = opts;
+  });
+
+  useBertStore.getState().inspectCitation({
+    quote: nodeScan.verbatim_text,
+    ast_node_id: nodeScan.id,
+    page_number: nodeScan.page_number,
+    bounding_box: nodeScan.bounding_box,
+    document_filename: docScan.filename,
+    confidence_score: 0, // zero must not fall back to node.ocr_confidence
+    locator: nodeScan.locator,
+    region_match_score: 98.4,
+  });
+
+  const postState = useBertStore.getState();
+  assert(postState.activeHighlightBox?.confidence === 0, `Zero confidence_score preserved instead of overwritten by ocr_confidence (${postState.activeHighlightBox?.confidence})`);
+  assert(postState.activeRegionMatchScore === 98.4, `activeRegionMatchScore populated (98.4)`);
+  assert(postState.activeLocator?.source_type === "pdf", `activeLocator populated on inspectCitation`);
+  const navResult = crossRouteCall as { docId?: string | null; page?: number | null; nodeId?: string | null } | null;
+  assert(navResult !== null && navResult.docId === docScan.id && navResult.nodeId === nodeScan.id, `Registered workspace navigator notified for cross-route citation click`);
+  registerWorkspaceNavigator(null);
+
+  const disp = formatLocatorDisplay(nodeScan.locator, docScan);
+  assert(disp.valid && disp.chip === "SCAN" && disp.label.includes("p.1"), `Scan locator formats with SCAN chip and p.1 label (${disp.label})`);
+}
+
+// ============================================================================
 // MAIN RUNNER
 // ============================================================================
 async function main() {
@@ -453,6 +524,7 @@ async function main() {
     await runSuite1_CoordinateMath();
     await runSuite2_CitationClickAndAtomicSwitching();
     await runSuite3_DualSignatureCompatibility();
+    await runSuite4_Phase2EvidenceLocators();
 
     console.log("\n================================================================================");
     console.log(`STRESS TEST SUMMARY: ${totalAsserts} asserts executed, ${failedAsserts} failures.`);

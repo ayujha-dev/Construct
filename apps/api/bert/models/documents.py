@@ -49,12 +49,16 @@ class VerificationStatus(str, enum.Enum):
     VERIFIED = "VERIFIED"
     NEEDS_HUMAN_VERIFICATION = "NEEDS_HUMAN_VERIFICATION"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    ESCALATED_LEGAL = "ESCALATED_LEGAL"
+    HUMAN_OVERRIDE = "HUMAN_OVERRIDE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class ResolvedByTier(str, enum.Enum):
     TIER1_CACHE = "TIER1_CACHE"
     TIER2_SLM_REGIMENT = "TIER2_SLM_REGIMENT"
     TIER3_ARBITER = "TIER3_ARBITER"
+    HUMAN_IN_THE_LOOP = "HUMAN_IN_THE_LOOP"
 
 
 class Document(Base):
@@ -99,6 +103,7 @@ class ASTNode(Base):
     structured_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bounding_box: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    locator: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     ocr_confidence: Mapped[float] = mapped_column(Float, default=1.0)
     category_tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     priority_score: Mapped[int] = mapped_column(Integer, default=50)
@@ -130,7 +135,28 @@ class WorkItem(Base):
     verification_status: Mapped[VerificationStatus] = mapped_column(String(32))
     resolved_by_tier: Mapped[ResolvedByTier] = mapped_column(String(32))
     gate_telemetry: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    escalation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    escalation_assignee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    escalated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    original_priority_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    previous_state_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    human_override_reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    no_evidence_attestation: Mapped[bool] = mapped_column(Boolean, default=False)
+    override_locator: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    weak_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    weak_evidence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_quality: Mapped[str] = mapped_column(String(20), default="missing")
+    machine_extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vision_rescue_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_vision_rescue: Mapped[bool] = mapped_column(Boolean, default=False)
+    temporal_conflict: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    @property
+    def can_undo(self) -> bool:
+        """Return whether a prior state snapshot is available to restore."""
+        return bool(self.previous_state_snapshot)
 
     __table_args__ = (
         Index("ix_work_items_workspace_priority", "workspace_id", "priority_tier"),
@@ -176,3 +202,32 @@ class JobExecution(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (Index("ix_job_executions_workspace_status", "workspace_id", "status"),)
+
+
+class ExecutiveSummaryRecord(Base):
+    """Persisted Envoy executive summary synthesized from real corpus findings."""
+
+    __tablename__ = "executive_summaries"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    document_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    only_critical: Mapped[bool] = mapped_column(Boolean, default=False)
+    latest_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    total_work_items: Mapped[int] = mapped_column(Integer, default=0)
+    verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    human_override_count: Mapped[int] = mapped_column(Integer, default=0)
+    unresolved_count: Mapped[int] = mapped_column(Integer, default=0)
+    escalated_legal_count: Mapped[int] = mapped_column(Integer, default=0)
+    not_applicable_count: Mapped[int] = mapped_column(Integer, default=0)
+    critical_count: Mapped[int] = mapped_column(Integer, default=0)
+    critical_open_count: Mapped[int] = mapped_column(Integer, default=0)
+    high_open_count: Mapped[int] = mapped_column(Integer, default=0)
+    weak_evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    defensibility_score: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    summary_text: Mapped[str] = mapped_column(Text)
+    markdown: Mapped[str] = mapped_column(Text)
+    key_findings: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    arbiter_resolutions: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    is_stale: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

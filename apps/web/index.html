@@ -1,15 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#F8F9FA" />
-    <title>BERT | Zero-Hallucination Document Intelligence</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#FAF8F5" />
+    <title>BERT | Evidence-Verified Document Intelligence</title>
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("bert-theme");
+          var theme = stored === "dark" ? "dark" : "light";
+          var root = document.documentElement;
+          root.setAttribute("data-theme", theme);
+          root.classList.toggle("dark", theme === "dark");
+          root.style.colorScheme = theme;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute("content", theme === "dark" ? "#0E1117" : "#FAF8F5");
+          }
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-[#F8F9FA] text-zinc-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <body class="bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
